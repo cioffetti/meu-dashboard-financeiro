@@ -14,14 +14,13 @@ def formatar_br(valor, casas):
     texto = f"{valor:,.{casas}f}"
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- MOTOR DE LOTE OTIMIZADO (AGORA COM CARIMBO DE TEMPO) ---
+# --- MOTOR DE LOTE OTIMIZADO (COM CARIMBO DE TEMPO) ---
 @st.cache_data(ttl=900)
 def buscar_dados_em_lote(lista_tickers):
     tickers_str = " ".join(lista_tickers)
     try:
         dados = yf.download(tickers_str, period="7d", interval="1d", progress=False)
         
-        # Carimba a hora exata em que fomos na internet buscar
         hora_consulta = datetime.now().strftime("%d/%m %H:%M")
         
         if len(lista_tickers) == 1:
@@ -35,15 +34,14 @@ def buscar_dados_em_lote(lista_tickers):
         st.error(f"Erro na conexão: {e}")
         return None, None
 
-# --- 2. LISTAS DE ATIVOS (ATUALIZADAS) ---
-# Formato: "Nome de Exibição": ("Ticker", Número_de_Casas)
+# --- 2. LISTAS DE ATIVOS (ATUALIZADAS COM SHENZHEN) ---
 macro_dict = {
     "Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3),
     "Ouro": ("GC=F", 2), "Petróleo (Brent)": ("BZ=F", 2),
     "Bitcoin": ("BTC-USD", 2), "Ethereum": ("ETH-USD", 2), "Solana": ("SOL-USD", 2),
     "Ibovespa": ("^BVSP", 2), "S&P 500": ("^GSPC", 2), "Dow Jones": ("^DJI", 2),
     "Nasdaq": ("^IXIC", 2), "DAX (Alem)": ("^GDAXI", 2), "Nikkei (Jap)": ("^N225", 2),
-    "Shanghai (Chi)": ("000001.SS", 2), "Pequim (Chi)": ("899050.BJ", 2), "Merval (Arg)": ("^MERV", 2)
+    "Shanghai (Chi)": ("000001.SS", 2), "Shenzhen (Chi)": ("399001.SZ", 2), "Merval (Arg)": ("^MERV", 2)
 }
 
 acoes_br_list = [
@@ -73,7 +71,6 @@ aba_macro, aba_br, aba_usa = st.tabs(["🌍 Visão Macro", "🇧🇷 Ações Bra
 def renderizar_grid_cards(dicionario_ativos):
     lista_tickers = [info[0] for info in dicionario_ativos.values()]
     
-    # Agora recebemos os dados E o horário da consulta
     dados_lote, hora_consulta = buscar_dados_em_lote(lista_tickers)
     
     if dados_lote is not None:
@@ -110,7 +107,6 @@ def renderizar_grid_cards(dicionario_ativos):
                                 )
                                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                                 
-                                # AQUI ENTRA A GOVERNANÇA: Mostra a hora da atualização e a fonte
                                 st.caption(f"⚡ Atualizado: {hora_consulta} | Fonte: YF")
 
 # CONTEÚDO DAS ABAS
