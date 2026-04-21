@@ -1,133 +1,102 @@
 import pandas as pd
 import yfinance as yf
 import fundamentus
+import requests
 import time
 from datetime import datetime
 import os
+from dotenv import load_dotenv
 
-print("🤖 Iniciando o Robô de Coleta de Balanços...")
-print("-" * 50)
+# --- CONFIGURAÇÃO DE SEGURANÇA (COFRE LOCAL) ---
+# O comando abaixo lê o arquivo .env silenciosamente
+load_dotenv() 
 
-# --- 1. NOSSAS LISTAS DE ATIVOS ---
-acoes_br_list = [
-    "AGRO3", "AMOB3", "BBAS3", "BBDC3", "BBSE3", "BRSR6", "B3SA3", "CMIG3", 
-    "CXSE3", "EGIE3", "EQTL3", "EZTC3", "FLRY3", "GMAT3", "ITSA4", "KEPL3", 
-    "KLBN3", "LEVE3", "PETR3", "PRIO3", "PSSA3", "RAIZ4", "RANI3", "SAPR4", 
-    "SBFG3", "SMTO3", "SOJA3", "SUZB3", "TAEE11", "TTEN3", "VAMO3", "VIVT3", "WEGE3"
-]
+BRAPI_KEY = os.getenv("BRAPI_KEY")
+FINNHUB_KEY = os.getenv("FINNHUB_KEY")
 
-acoes_usa_list = [
-    "GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA", "MU", "VZ", 
-    "T", "HD", "SHOP", "DIS", "SPG", "ANET", "ICE", "KO", "EQNR", "EPR", "WFC", 
-    "VICI", "O", "CPRT", "ASX", "CEPU", "NVO", "PLTR", "JBL", "QCOM", "AAPL", 
-    "MSFT", "BAC", "ORCL", "EQT", "MNST", "CVS", "HUYA", "GPC", "PFE", "ROKU", 
-    "DIBS", "LEG", "MBUU", "FVRR"
-]
+if not BRAPI_KEY or not FINNHUB_KEY:
+    print("❌ ERRO: Chaves não encontradas! Verifique o arquivo .env")
+    exit()
 
-# DataFrame vazio para irmos guardando os dados
+print("🤖 Robô V2.0: Iniciando Coleta Pro (BRAPI + FINNHUB)...")
+
+# --- LISTAS DE ATIVOS ---
+acoes_br_list = ["AGRO3", "AMOB3", "BBAS3", "BBDC3", "BBSE3", "BRSR6", "B3SA3", "CMIG3", "CXSE3", "EGIE3", "EQTL3", "EZTC3", "FLRY3", "GMAT3", "ITSA4", "KEPL3", "KLBN3", "LEVE3", "PETR3", "PRIO3", "PSSA3", "RAIZ4", "RANI3", "SAPR4", "SBFG3", "SMTO3", "SOJA3", "SUZB3", "TAEE11", "TTEN3", "VAMO3", "VIVT3", "WEGE3"]
+acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA", "MU", "VZ", "T", "HD", "SHOP", "DIS", "SPG", "ANET", "ICE", "KO", "EQNR", "EPR", "WFC", "VICI", "O", "CPRT", "ASX", "CEPU", "NVO", "PLTR", "JBL", "QCOM", "AAPL", "MSFT", "BAC", "ORCL", "EQT", "MNST", "CVS", "HUYA", "GPC", "PFE", "ROKU", "DIBS", "LEG", "MBUU", "FVRR"]
+
 df_final = pd.DataFrame()
 
-# --- 2. COLETA BRASIL (VIA FUNDAMENTUS) ---
-print("🇧🇷 Etapa 1: Coletando dados da B3 (Fundamentus)...")
+# --- 1. BRASIL (VIA FUNDAMENTUS/BRAPI) ---
+print("🇧🇷 Processando Brasil...")
 try:
-    # O Fundamentus puxa TODAS as ações da bolsa em 2 segundos
-    df_b3_completo = fundamentus.get_resultado()
-    
-    # Filtramos apenas as 33 que nos interessam
-    df_br = df_b3_completo[df_b3_completo.index.isin(acoes_br_list)].copy()
-    
-    # Resetar o index para a coluna 'Papel' virar coluna normal (Ticker)
+    df_br = fundamentus.get_resultado()
+    df_br = df_br[df_br.index.isin(acoes_br_list)].copy()
     df_br.reset_index(inplace=True)
-    df_br.rename(columns={'papel': 'Ticker'}, inplace=True)
+    df_br.rename(columns={'papel': 'Ticker', 'cotacao': 'Preco', 'pl': 'PL', 'pvp': 'PVP'}, inplace=True)
     
-    # Matemática do Valuation: Descobrir LPA e VPA a partir do Preço, P/L e P/VP
-    df_br['Preco'] = df_br['cotacao']
-    df_br['LPA'] = df_br['Preco'] / df_br['pl']
-    df_br['VPA'] = df_br['Preco'] / df_br['pvp']
+    df_br['LPA'] = df_br['Preco'] / df_br['PL']
+    df_br['VPA'] = df_br['Preco'] / df_br['PVP']
     df_br['Div_Yield_%'] = df_br['dy'] * 100
     df_br['ROE_%'] = df_br['roe'] * 100
     df_br['ROIC_%'] = df_br['roic'] * 100
     df_br['EV_EBIT'] = df_br['evebit']
+    df_br['Origem'] = "BRAPI/Fundamentus"
     
-    # Selecionar e padronizar apenas as colunas que importam para o nosso painel
-    df_br_limpo = df_br[['Ticker', 'Preco', 'LPA', 'VPA', 'Div_Yield_%', 'ROE_%', 'ROIC_%', 'EV_EBIT']].copy()
-    df_br_limpo['Origem'] = "BRAPI/Fundamentus"
-    
-    df_final = pd.concat([df_final, df_br_limpo], ignore_index=True)
-    print(f"✅ Sucesso! {len(df_br_limpo)} ações brasileiras processadas.")
-except Exception as e:
-    print(f"❌ Erro na coleta Brasil: {e}")
+    df_final = pd.concat([df_final, df_br[['Ticker', 'Preco', 'LPA', 'VPA', 'Div_Yield_%', 'ROE_%', 'ROIC_%', 'EV_EBIT', 'Origem']]])
+    print("✅ Brasil concluído.")
+except Exception as e: print(f"❌ Erro Brasil: {e}")
 
-# --- 3. COLETA EUA (VIA YFINANCE COM "FILA INDIANA") ---
-print("\n🇺🇸 Etapa 2: Coletando dados dos EUA (Yahoo Finance)...")
+# --- 2. EUA (HÍBRIDO: YAHOO FINANCE + FINNHUB) ---
+print("\n🇺🇸 Processando EUA (Motor Híbrido: YF + Finnhub)...")
 dados_usa = []
 
-# Configuração da Fila Indiana
-tamanho_lote = 10
-pausa_segundos = 3
+for ticker in acoes_usa_list:
+    try:
+        # 1. Puxa a contabilidade perfeita e atualizada do Yahoo Finance
+        acao = yf.Ticker(ticker)
+        info = acao.info
+        
+        # 2. Puxa APENAS a métrica faltante (ROIC) do Finnhub
+        url = f"https://finnhub.io/api/v1/stock/metric?symbol={ticker}&metric=all&token={FINNHUB_KEY}"
+        res = requests.get(url).json()
+        metrics = res.get('metric', {})
+        
+        # Coleta os dados básicos do Yahoo
+        preco = info.get('currentPrice', info.get('previousClose', 0))
+        lpa = info.get('trailingEps', 0)
+        vpa = info.get('bookValue', 0)
+        
+        dy = info.get('dividendYield')
+        dy_val = (dy * 100) if dy is not None else 0
+        
+        roe = info.get('returnOnEquity')
+        roe_val = (roe * 100) if roe is not None else 0
+        
+        # O EV/EBITDA o Yahoo tem prontinho e perfeito
+        ev_ebit_val = info.get('enterpriseToEbitda', 0)
+        
+        # O Segredo do Finnhub: No plano gratuito eles chamam o ROIC de 'roiTTM'
+        roic_val = metrics.get('roiTTM', metrics.get('roiAnnual', 0))
+        
+        dados_usa.append({
+            'Ticker': ticker,
+            'Preco': preco,
+            'LPA': lpa,
+            'VPA': vpa,
+            'Div_Yield_%': dy_val,
+            'ROE_%': roe_val,
+            'ROIC_%': roic_val,
+            'EV_EBIT': ev_ebit_val,
+            'Origem': "YF + Finnhub"
+        })
+        print(f"✔️ {ticker}: Coletado (EV/EBIT e ROIC OK).")
+        
+        # Nossa pausa estratégica para não estourar os limites
+        time.sleep(1.1)
+        
+    except Exception as e: 
+        print(f"⚠️ Erro no ativo {ticker}: {e}")
 
-for i in range(0, len(acoes_usa_list), tamanho_lote):
-    lote = acoes_usa_list[i:i + tamanho_lote]
-    print(f"⏳ Processando lote {i//tamanho_lote + 1}... Ativos: {lote}")
-    
-    for ticker in lote:
-        try:
-            acao = yf.Ticker(ticker)
-            info = acao.info
-            
-            # Buscando as informações (com 'fallback' de 0 caso a empresa não tenha)
-            preco = info.get('currentPrice', info.get('previousClose', 0))
-            lpa = info.get('trailingEps', 0)
-            vpa = info.get('bookValue', 0)
-            dy = info.get('dividendYield', 0)
-            roe = info.get('returnOnEquity', 0)
-            
-            # Aproximação de EV/EBIT (A Fórmula Mágica)
-            ev = info.get('enterpriseValue', 0)
-            ebitda = info.get('ebitda', 0)
-            ev_ebit = ev / ebitda if ebitda and ev else 0
-            
-            dados_usa.append({
-                'Ticker': ticker,
-                'Preco': preco,
-                'LPA': lpa,
-                'VPA': vpa,
-                'Div_Yield_%': (dy * 100) if dy else 0,
-                'ROE_%': (roe * 100) if roe else 0,
-                'ROIC_%': 0, # YF não fornece ROIC fácil, deixamos 0 nesta versão
-                'EV_EBIT': ev_ebit,
-                'Origem': "Yahoo Finance"
-            })
-            
-        except Exception as e:
-            print(f"⚠️ Erro ao processar {ticker}: {e}")
-            
-    # Pausa intencional para evitar o Erro 429
-    if i + tamanho_lote < len(acoes_usa_list):
-        print(f"💤 Pausando {pausa_segundos}s para respeitar o limite do servidor...")
-        time.sleep(pausa_segundos)
-
-if dados_usa:
-    df_usa_limpo = pd.DataFrame(dados_usa)
-    df_final = pd.concat([df_final, df_usa_limpo], ignore_index=True)
-    print(f"✅ Sucesso! {len(dados_usa)} ações americanas processadas.")
-
-# --- 4. SALVANDO O BANCO DE DADOS (CSV) ---
-print("\n💾 Etapa 3: Gerando o arquivo base_dados.csv...")
-
-if not df_final.empty:
-    # Arredondando tudo para 4 casas decimais para ficar limpo
-    df_final = df_final.round(4)
-    
-    # Carimbando a data da extração (Governança)
-    data_extracao = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    
-    # Salva o arquivo CSV
-    caminho_arquivo = "base_dados.csv"
-    df_final.to_csv(caminho_arquivo, index=False, sep=";")
-    
-    print("-" * 50)
-    print(f"🎉 CONCLUÍDO! Banco de dados atualizado com sucesso em {data_extracao}.")
-    print(f"O arquivo '{caminho_arquivo}' já pode ser lido pelo painel Streamlit.")
-else:
-    print("❌ Erro fatal: Nenhum dado foi coletado.")
+df_final = pd.concat([df_final, pd.DataFrame(dados_usa)], ignore_index=True)
+df_final.to_csv("base_dados.csv", index=False, sep=";")
+print(f"\n🎉 Concluído em {datetime.now().strftime('%H:%M:%S')}. Base salva!")
