@@ -184,12 +184,15 @@ with aba_fundamentos:
         for col in colunas_dinheiro:
             df_exibir[col] = df_exibir.apply(lambda row: formatar_moeda(row, col), axis=1)
             
-        colunas_percentuais = ['Margem_Bazin_%', 'Margem_Graham_%', 'Margem_DCF_%']
+        # --- FORMATAÇÃO VISUAL (Adicionando o ROIC) ---
+        colunas_percentuais = ['Margem_Bazin_%', 'Margem_Graham_%', 'Margem_DCF_%', 'ROIC_%']
         for col in colunas_percentuais:
             df_exibir[col] = df_exibir[col].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) and x != 0 else "N/A")
 
+        # Define colunas finais para o usuário (Agora com ROIC e EV/EBIT visíveis)
         colunas_exibicao = [
-            'Rank_Geral', 'Ticker', 'Preco', 'Saude_Visual',
+            'Rank_Geral', 'Ticker', 'Preco', 'Saude_Visual', 
+            'ROIC_%', 'EV_EBIT', # <- A Fórmula Mágica aqui!
             'Teto_Bazin', 'Justo_Graham', 'Justo_DCF', 
             'Margem_Bazin_%', 'Margem_Graham_%', 'Margem_DCF_%'
         ]
