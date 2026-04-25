@@ -84,18 +84,24 @@ def calcular_indicadores_tecnicos(df):
 
 def encontrar_suportes_resistencias(df):
     suportes, resistencias = [], []
-    for i in range(20, len(df)-20):
-        if df['Low'].iloc[i] == min(df['Low'].iloc[i-20:i+20]): suportes.append(df['Low'].iloc[i])
-        if df['High'].iloc[i] == max(df['High'].iloc[i-20:i+20]): resistencias.append(df['High'].iloc[i])
     
-    preco_atual = df['Close'].iloc[-1]
+    # INTELIGÊNCIA CORRIGIDA: Foca apenas nos últimos 250 pregões (1 ano) para achar suportes reais atuais
+    df_recente = df.tail(250)
+    
+    # Janela mais curta (10 dias) para pegar os pequenos fundos em ações que sobem muito rápido
+    for i in range(10, len(df_recente)-10):
+        if df_recente['Low'].iloc[i] == min(df_recente['Low'].iloc[i-10:i+10]): suportes.append(df_recente['Low'].iloc[i])
+        if df_recente['High'].iloc[i] == max(df_recente['High'].iloc[i-10:i+10]): resistencias.append(df_recente['High'].iloc[i])
+    
+    preco_atual = df_recente['Close'].iloc[-1]
+    # Filtra os 3 mais próximos do preço atual
     suportes_filtrados = sorted([s for s in suportes if s < preco_atual], reverse=True)[:3]
     resistencias_filtradas = sorted([r for r in resistencias if r > preco_atual])[:3]
     return suportes_filtrados, resistencias_filtradas
 
 @st.dialog("🔬 Raio-X Técnico Profissional", width="large")
 def abrir_raio_x(ticker):
-    st.write(f"Buscando histórico de 5 anos para **{ticker}** e calculando algoritmos...")
+    st.write(f"Buscando histórico de mercado para **{ticker}** e calculando algoritmos...")
     try:
         dados = yf.Ticker(ticker).history(period="5y")
         
@@ -106,18 +112,15 @@ def abrir_raio_x(ticker):
         df_tec = calcular_indicadores_tecnicos(dados)
         suportes, resistencias = encontrar_suportes_resistencias(df_tec)
         
-        # Exibimos apenas o último 1 ano útil no gráfico para não poluir visualmente, 
-        # mas a matemática dos suportes usou os 5 anos inteiros!
         df_tec = df_tec.tail(250) 
         
-        # CORREÇÃO: Habilitando o eixo Y secundário (secondary_y) para o MACD não ser esmagado pelo Volume
         fig = make_subplots(
             rows=3, cols=1, 
             shared_xaxes=True, 
             row_heights=[0.6, 0.2, 0.2], 
             vertical_spacing=0.05,
             specs=[[{"secondary_y": False}], 
-                   [{"secondary_y": True}], # A mágica acontece aqui (Eixo duplo para o MACD)
+                   [{"secondary_y": True}], 
                    [{"secondary_y": False}]]
         )
         
@@ -131,13 +134,9 @@ def abrir_raio_x(ticker):
         for r in resistencias:
             fig.add_hline(y=r, line_dash="dash", line_color="red", annotation_text=f"Res: {r:.2f}", row=1, col=1)
 
-        # 2. Volume e MACD (Agora separados em eixos independentes)
+        # 2. Volume e MACD
         cores_macd = ['#00FFCC' if val >= 0 else '#FF4B4B' for val in df_tec['MACD_Hist']]
-        
-        # Volume fica no eixo primário (escondemos os números grandes para ficar limpo)
         fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['Volume'], marker_color='rgba(255,255,255,0.05)', name='Volume'), row=2, col=1, secondary_y=False)
-        
-        # MACD vai para o eixo secundário (vai oscilar livremente)
         fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD'], line=dict(color='blue', width=1.5), name='MACD'), row=2, col=1, secondary_y=True)
         fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD_Signal'], line=dict(color='orange', width=1.5), name='Sinal'), row=2, col=1, secondary_y=True)
         fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['MACD_Hist'], marker_color=cores_macd, name='Histograma'), row=2, col=1, secondary_y=True)
@@ -147,14 +146,13 @@ def abrir_raio_x(ticker):
         fig.add_hline(y=70, line_dash="dot", line_color="red", row=3, col=1)
         fig.add_hline(y=30, line_dash="dot", line_color="green", row=3, col=1)
 
-        # Layout Final
         fig.update_layout(
             height=700, 
             template="plotly_dark", 
             showlegend=False, 
             margin=dict(l=0, r=0, t=10, b=0), 
             xaxis_rangeslider_visible=False,
-            yaxis2=dict(showticklabels=False) # Esconde os números gigantes do volume para o painel não ficar confuso
+            yaxis2=dict(showticklabels=False)
         )
         st.plotly_chart(fig, use_container_width=True)
         
@@ -162,11 +160,13 @@ def abrir_raio_x(ticker):
         rsi_atual = df_tec['RSI'].iloc[-1]
         preco_atual = df_tec['Close'].iloc[-1]
         st.markdown(f"**RSI Atual:** {rsi_atual:.1f} (Abaixo de 30 = Sobrevendido / Acima de 70 = Sobrecomprado)")
+        
         if suportes:
-            st.markdown(f"**Distância para o Piso Seguro:** Faltam {(preco_atual - suportes[0]) / preco_atual * 100:.2f}% de queda para atingir o suporte mais forte.")
+            distancia = ((preco_atual - suportes[0]) / preco_atual) * 100
+            st.markdown(f"**Distância para o Piso Seguro:** Faltam {distancia:.2f}% de queda para atingir o suporte gráfico mais próximo.")
             
-            # --- NOVA LINHA COM O PREÇO DE ENTRADA ---
-            st.success(f"🎯 **Preço Atrativo de Entrada (Suporte):** R$ {suportes[0]:.2f}")
+            moeda = "R$" if ".SA" in ticker else "US$"
+            st.success(f"🎯 **Preço Atrativo de Entrada (Suporte Mais Próximo):** {moeda} {suportes[0]:.2f}")
 
     except Exception as e:
         st.error(f"Erro ao processar Raio-X: {e}")
