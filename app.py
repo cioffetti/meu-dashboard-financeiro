@@ -97,7 +97,6 @@ def encontrar_suportes_resistencias(df):
 def abrir_raio_x(ticker):
     st.write(f"Buscando histórico de 5 anos para **{ticker}** e calculando algoritmos...")
     try:
-        # AQUI ESTÁ A CORREÇÃO: Utilizando yf.Ticker().history para evitar o erro de ambiguidade
         dados = yf.Ticker(ticker).history(period="5y")
         
         if dados.empty:
@@ -106,10 +105,23 @@ def abrir_raio_x(ticker):
             
         df_tec = calcular_indicadores_tecnicos(dados)
         suportes, resistencias = encontrar_suportes_resistencias(df_tec)
-        df_tec = df_tec.tail(250)
         
-        fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.6, 0.2, 0.2], vertical_spacing=0.05)
+        # Exibimos apenas o último 1 ano útil no gráfico para não poluir visualmente, 
+        # mas a matemática dos suportes usou os 5 anos inteiros!
+        df_tec = df_tec.tail(250) 
         
+        # CORREÇÃO: Habilitando o eixo Y secundário (secondary_y) para o MACD não ser esmagado pelo Volume
+        fig = make_subplots(
+            rows=3, cols=1, 
+            shared_xaxes=True, 
+            row_heights=[0.6, 0.2, 0.2], 
+            vertical_spacing=0.05,
+            specs=[[{"secondary_y": False}], 
+                   [{"secondary_y": True}], # A mágica acontece aqui (Eixo duplo para o MACD)
+                   [{"secondary_y": False}]]
+        )
+        
+        # 1. Gráfico Principal (Preço)
         fig.add_trace(go.Candlestick(x=df_tec.index, open=df_tec['Open'], high=df_tec['High'], low=df_tec['Low'], close=df_tec['Close'], name='Preço'), row=1, col=1)
         fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['Bollinger_Upper'], line=dict(color='rgba(255,255,255,0.2)', width=1), name='Banda Sup'), row=1, col=1)
         fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['Bollinger_Lower'], line=dict(color='rgba(255,255,255,0.2)', width=1), fill='tonexty', fillcolor='rgba(255,255,255,0.05)', name='Banda Inf'), row=1, col=1)
@@ -119,29 +131,47 @@ def abrir_raio_x(ticker):
         for r in resistencias:
             fig.add_hline(y=r, line_dash="dash", line_color="red", annotation_text=f"Res: {r:.2f}", row=1, col=1)
 
+        # 2. Volume e MACD (Agora separados em eixos independentes)
         cores_macd = ['#00FFCC' if val >= 0 else '#FF4B4B' for val in df_tec['MACD_Hist']]
-        fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['Volume'], marker_color='rgba(255,255,255,0.1)', name='Volume'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD'], line=dict(color='blue', width=1.5), name='MACD'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD_Signal'], line=dict(color='orange', width=1.5), name='Sinal'), row=2, col=1)
-        fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['MACD_Hist'], marker_color=cores_macd, name='Histograma'), row=2, col=1)
+        
+        # Volume fica no eixo primário (escondemos os números grandes para ficar limpo)
+        fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['Volume'], marker_color='rgba(255,255,255,0.05)', name='Volume'), row=2, col=1, secondary_y=False)
+        
+        # MACD vai para o eixo secundário (vai oscilar livremente)
+        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD'], line=dict(color='blue', width=1.5), name='MACD'), row=2, col=1, secondary_y=True)
+        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD_Signal'], line=dict(color='orange', width=1.5), name='Sinal'), row=2, col=1, secondary_y=True)
+        fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['MACD_Hist'], marker_color=cores_macd, name='Histograma'), row=2, col=1, secondary_y=True)
 
+        # 3. RSI
         fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['RSI'], line=dict(color='purple', width=2), name='RSI'), row=3, col=1)
         fig.add_hline(y=70, line_dash="dot", line_color="red", row=3, col=1)
         fig.add_hline(y=30, line_dash="dot", line_color="green", row=3, col=1)
 
-        fig.update_layout(height=700, template="plotly_dark", showlegend=False, margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False)
+        # Layout Final
+        fig.update_layout(
+            height=700, 
+            template="plotly_dark", 
+            showlegend=False, 
+            margin=dict(l=0, r=0, t=10, b=0), 
+            xaxis_rangeslider_visible=False,
+            yaxis2=dict(showticklabels=False) # Esconde os números gigantes do volume para o painel não ficar confuso
+        )
         st.plotly_chart(fig, use_container_width=True)
         
+        # Veredito Técnico
         rsi_atual = df_tec['RSI'].iloc[-1]
         preco_atual = df_tec['Close'].iloc[-1]
         st.markdown(f"**RSI Atual:** {rsi_atual:.1f} (Abaixo de 30 = Sobrevendido / Acima de 70 = Sobrecomprado)")
         if suportes:
             st.markdown(f"**Distância para o Piso Seguro:** Faltam {(preco_atual - suportes[0]) / preco_atual * 100:.2f}% de queda para atingir o suporte mais forte.")
+            
+            # --- NOVA LINHA COM O PREÇO DE ENTRADA ---
+            st.success(f"🎯 **Preço Atrativo de Entrada (Suporte):** R$ {suportes[0]:.2f}")
 
     except Exception as e:
         st.error(f"Erro ao processar Raio-X: {e}")
 
-# --- 2. LISTAS DE ATIVOS (100% RESTAURADAS) ---
+# --- 2. LISTAS DE ATIVOS ---
 macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F", 2), "Petróleo (Brent)": ("BZ=F", 2), "Bitcoin": ("BTC-USD", 2), "Ethereum": ("ETH-USD", 2), "Solana": ("SOL-USD", 2), "Ibovespa": ("^BVSP", 2), "S&P 500": ("^GSPC", 2), "Dow Jones": ("^DJI", 2), "Nasdaq": ("^IXIC", 2), "DAX (Alem)": ("^GDAXI", 2), "Nikkei (Jap)": ("^N225", 2), "Shanghai (Chi)": ("000001.SS", 2), "Shenzhen (Chi)": ("399001.SZ", 2), "Merval (Arg)": ("^MERV", 2)}
 acoes_br_list = ["AGRO3.SA", "AMOB3.SA", "BBAS3.SA", "BBDC3.SA", "BBSE3.SA", "BRSR6.SA", "B3SA3.SA", "CMIG3.SA", "CXSE3.SA", "EGIE3.SA", "EQTL3.SA", "EZTC3.SA", "FLRY3.SA", "GMAT3.SA", "ITSA4.SA", "KEPL3.SA", "KLBN3.SA", "LEVE3.SA", "PETR3.SA", "PRIO3.SA", "PSSA3.SA", "RAIZ4.SA", "RANI3.SA", "SAPR4.SA", "SBFG3.SA", "SMTO3.SA", "SOJA3.SA", "SUZB3.SA", "TAEE11.SA", "TTEN3.SA", "VAMO3.SA", "VIVT3.SA", "WEGE3.SA", "ETHE11.SA", "GOLD11.SA", "QSOL11.SA", "QBTC11.SA"]
 acoes_br_dict = {ticker.replace(".SA", ""): (ticker, 2) for ticker in acoes_br_list}
