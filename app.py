@@ -62,6 +62,39 @@ def buscar_taxas_macro():
 
 taxa_selic_live, taxa_us10y_live = buscar_taxas_macro()
 
+# --- NOVO: JANELA DE HISTÓRICO SIMPLES (5 ANOS) ---
+@st.dialog("📈 Histórico de Longo Prazo (5 Anos)", width="large")
+def abrir_historico_simples(ticker, nome):
+    st.write(f"Carregando histórico de 5 anos para **{nome}** ({ticker})...")
+    try:
+        dados = yf.Ticker(ticker).history(period="5y")
+        if dados.empty:
+            st.error("Dados não encontrados para este ativo no Yahoo Finance.")
+            return
+            
+        fig = go.Figure()
+        # Gráfico de área (linha com preenchimento) limpo e elegante
+        fig.add_trace(go.Scatter(
+            x=dados.index, 
+            y=dados['Close'], 
+            fill='tozeroy', 
+            mode='lines', 
+            line=dict(color='#00FFCC', width=2),
+            fillcolor='rgba(0, 255, 204, 0.1)',
+            name="Preço"
+        ))
+        
+        fig.update_layout(
+            template="plotly_dark", 
+            height=500, 
+            margin=dict(l=0, r=0, t=10, b=0), 
+            xaxis_rangeslider_visible=False,
+            yaxis_title="Cotação"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"Erro ao carregar histórico: {e}")
+
 # --- MOTOR DE ANÁLISE TÉCNICA (FASE 3) ---
 def calcular_indicadores_tecnicos(df):
     df['SMA_20'] = df['Close'].rolling(window=20).mean()
@@ -84,17 +117,12 @@ def calcular_indicadores_tecnicos(df):
 
 def encontrar_suportes_resistencias(df):
     suportes, resistencias = [], []
-    
-    # INTELIGÊNCIA CORRIGIDA: Foca apenas nos últimos 250 pregões (1 ano) para achar suportes reais atuais
     df_recente = df.tail(250)
-    
-    # Janela mais curta (10 dias) para pegar os pequenos fundos em ações que sobem muito rápido
     for i in range(10, len(df_recente)-10):
         if df_recente['Low'].iloc[i] == min(df_recente['Low'].iloc[i-10:i+10]): suportes.append(df_recente['Low'].iloc[i])
         if df_recente['High'].iloc[i] == max(df_recente['High'].iloc[i-10:i+10]): resistencias.append(df_recente['High'].iloc[i])
     
     preco_atual = df_recente['Close'].iloc[-1]
-    # Filtra os 3 mais próximos do preço atual
     suportes_filtrados = sorted([s for s in suportes if s < preco_atual], reverse=True)[:3]
     resistencias_filtradas = sorted([r for r in resistencias if r > preco_atual])[:3]
     return suportes_filtrados, resistencias_filtradas
@@ -124,7 +152,6 @@ def abrir_raio_x(ticker):
                    [{"secondary_y": False}]]
         )
         
-        # 1. Gráfico Principal (Preço)
         fig.add_trace(go.Candlestick(x=df_tec.index, open=df_tec['Open'], high=df_tec['High'], low=df_tec['Low'], close=df_tec['Close'], name='Preço'), row=1, col=1)
         fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['Bollinger_Upper'], line=dict(color='rgba(255,255,255,0.2)', width=1), name='Banda Sup'), row=1, col=1)
         fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['Bollinger_Lower'], line=dict(color='rgba(255,255,255,0.2)', width=1), fill='tonexty', fillcolor='rgba(255,255,255,0.05)', name='Banda Inf'), row=1, col=1)
@@ -134,14 +161,12 @@ def abrir_raio_x(ticker):
         for r in resistencias:
             fig.add_hline(y=r, line_dash="dash", line_color="red", annotation_text=f"Res: {r:.2f}", row=1, col=1)
 
-        # 2. Volume e MACD
         cores_macd = ['#00FFCC' if val >= 0 else '#FF4B4B' for val in df_tec['MACD_Hist']]
         fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['Volume'], marker_color='rgba(255,255,255,0.05)', name='Volume'), row=2, col=1, secondary_y=False)
         fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD'], line=dict(color='blue', width=1.5), name='MACD'), row=2, col=1, secondary_y=True)
         fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD_Signal'], line=dict(color='orange', width=1.5), name='Sinal'), row=2, col=1, secondary_y=True)
         fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['MACD_Hist'], marker_color=cores_macd, name='Histograma'), row=2, col=1, secondary_y=True)
 
-        # 3. RSI
         fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['RSI'], line=dict(color='purple', width=2), name='RSI'), row=3, col=1)
         fig.add_hline(y=70, line_dash="dot", line_color="red", row=3, col=1)
         fig.add_hline(y=30, line_dash="dot", line_color="green", row=3, col=1)
@@ -156,7 +181,6 @@ def abrir_raio_x(ticker):
         )
         st.plotly_chart(fig, use_container_width=True)
         
-        # Veredito Técnico
         rsi_atual = df_tec['RSI'].iloc[-1]
         preco_atual = df_tec['Close'].iloc[-1]
         st.markdown(f"**RSI Atual:** {rsi_atual:.1f} (Abaixo de 30 = Sobrevendido / Acima de 70 = Sobrecomprado)")
@@ -208,6 +232,11 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                                 fig = go.Figure(go.Scatter(x=precos.index, y=precos, mode='lines', line=dict(color=cor_linha, width=2), fill='tozeroy', fillcolor=cor_preenchimento))
                                 fig.update_layout(template="plotly_dark", height=80, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                                
+                                # NOVO BOTÃO DE ACESSO AO GRÁFICO 5 ANOS
+                                if st.button("🔍 Ver Histórico 5 Anos", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
+                                    abrir_historico_simples(ticker, nome_exibicao)
+                                    
                                 st.caption(f"⚡ {hora_consulta} | {fonte}")
 
 with aba_macro: renderizar_grid_cards(macro_dict, "Macro")
