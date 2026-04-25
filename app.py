@@ -97,9 +97,11 @@ def encontrar_suportes_resistencias(df):
 def abrir_raio_x(ticker):
     st.write(f"Buscando histórico de 5 anos para **{ticker}** e calculando algoritmos...")
     try:
-        dados = yf.download(ticker, period="5y", progress=False)
+        # AQUI ESTÁ A CORREÇÃO: Utilizando yf.Ticker().history para evitar o erro de ambiguidade
+        dados = yf.Ticker(ticker).history(period="5y")
+        
         if dados.empty:
-            st.error("Dados não encontrados para este ativo.")
+            st.error("Dados não encontrados para este ativo no Yahoo Finance.")
             return
             
         df_tec = calcular_indicadores_tecnicos(dados)
@@ -294,7 +296,7 @@ if os.path.exists(arquivo_csv):
         df_sim['N_Graham'] = df_sim['Margem_Graham_%'].rank(pct=True) * 100
         df_sim['N_Bazin'] = df_sim['Margem_Bazin_%'].rank(pct=True) * 100
         df_sim['N_DCF'] = df_sim['Margem_DCF_%'].rank(pct=True) * 100
-        df_sim['N_Magic'] = df_sim.get('Pontuacao_Magica', pd.Series([0]*len(df_sim))).rank(ascending=False, pct=True) * 100
+        df_sim['N_Magic'] = df_sim.get('Pontuacao_Magica', pd.Series([0]*len(df_sim))).fillna(0).rank(ascending=False, pct=True) * 100
         df_sim['N_FScore'] = (df_sim['F_Score'] / 5) * 100
 
         total_w = w_graham + w_bazin + w_magic + w_fscore + w_dcf
