@@ -110,7 +110,7 @@ def gerar_relatorio_ia(ticker):
             if noticias_yf:
                 for n in noticias_yf:
                     titulo = n.get('title')
-                    if not titulo: continue # Ignora lixo sem título
+                    if not titulo: continue
                     
                     ts = n.get('providerPublishTime')
                     dt_pub = datetime.fromtimestamp(ts).strftime('%d/%m/%Y') if ts else "Recente"
@@ -120,7 +120,6 @@ def gerar_relatorio_ia(ticker):
         except Exception:
             pass
 
-        # Avalia se o Yahoo Finance trouxe dados suficientes
         if len(noticias_validas) > 0:
             texto_noticias = "".join(noticias_validas[:10])
         else:
@@ -145,7 +144,7 @@ def gerar_relatorio_ia(ticker):
         if not texto_noticias.strip():
             texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
 
-        # 3. INJEÇÃO DE CONTEXTO E CHAMADA DA IA
+        # 3. INJEÇÃO DE CONTEXTO E CHAMADA DA IA (PROMPT ATUALIZADO)
         data_hoje = datetime.now().strftime("%d/%m/%Y")
 
         prompt = f"""
@@ -171,15 +170,17 @@ def gerar_relatorio_ia(ticker):
         * **✅ 3 Pontos Positivos:** [Descreva 3 destaques financeiros]
         * **⚠️ 3 Pontos de Atenção:** [Descreva 3 preocupações financeiras]
         
-        ## 3. Termômetro de Notícias e Fluxo
+        ## 3. Termômetro de Notícias e Percepção de Mercado
         Classifique as manchetes reais fornecidas acima entre positivas e negativas.
-        Você DEVE obrigatoriamente colocar a [Data] e a [Fonte] exatamente como eu passei no texto injetado.
+        Para cada notícia, escreva um "Resumo do Analista" de no máximo 5 linhas, explicando de forma clara e objetiva o que aconteceu e como o mercado percebe essa informação.
         
         **Notícias Positivas Recentes:**
-        * [Data] - [Fonte] - [Manchete] -> Impacto no Fluxo: [Estime o impacto direcional, ex: +1.5%]
+        * **[{data_hoje}] - [Fonte] - [Manchete]**
+        > **Resumo do Analista:** [Sua explicação de até 5 linhas sobre o fato e a percepção do mercado].
         
         **Notícias Negativas Recentes:**
-        * [Data] - [Fonte] - [Manchete] -> Impacto no Fluxo: [Estime o impacto direcional, ex: -2.0%]
+        * **[{data_hoje}] - [Fonte] - [Manchete]**
+        > **Resumo do Analista:** [Sua explicação de até 5 linhas sobre o fato e a percepção do mercado].
         
         Seja direto e profissional.
         """
