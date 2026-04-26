@@ -22,7 +22,7 @@ if GOOGLE_API_KEY:
 
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(page_title="Terminal Financeiro Pro", layout="wide")
-st.title("🏛️ Terminal de Inteligência Financeira")
+st.title("🏛️ Monitor Financeiro - Pro")
 
 def formatar_br(valor, casas):
     if pd.isna(valor) or valor is None: return "N/A"
@@ -91,7 +91,7 @@ def abrir_historico_simples(ticker, nome):
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (O VEREDITO INTEGRAL) ---
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (O VEREDITO FLUIDO E LIMPO) ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker, dados_fundos=None):
     if not GOOGLE_API_KEY:
@@ -101,7 +101,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
     st.info(f"Coletando notícias reais e cruzando Pilares de Análise para **{ticker}**...")
     
     try:
-        # 1. RAG TÉCNICO (Cálculo do Suporte para Injeção)
+        # 1. RAG TÉCNICO
         preco_atual_ia = "N/A"
         suporte_ia = "N/A"
         moeda_ia = "R$" if ".SA" in ticker else "US$"
@@ -114,7 +114,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
                 preco_atual_ia = f"{moeda_ia} {df_tec_ia['Close'].iloc[-1]:.2f}"
         except Exception: pass
 
-        # 2. CAPTURA DE NOTÍCIAS (HÍBRIDA: YF ou Google News RSS)
+        # 2. CAPTURA DE NOTÍCIAS HÍBRIDA
         is_usa = ".SA" not in ticker
         texto_noticias = ""
         noticias_validas = []
@@ -150,7 +150,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         if not texto_noticias.strip():
             texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
 
-        # 3. EMPACOTAMENTO GERAL PARA O PROMPT (Sem travas de decimais para evitar crash)
+        # 3. EMPACOTAMENTO GERAL PARA O PROMPT
         contexto_dados = f"""
         **DADOS TÉCNICOS (PREÇO ATUAL E GRÁFICO):**
         - Preço Atual da Ação: {preco_atual_ia}
@@ -184,39 +184,60 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         MANCHETES:
         {texto_noticias}
         
-        A sua resposta DEVE seguir estritamente o formato abaixo em Markdown:
+        REGRA DE FORMATAÇÃO E ESTILO (INEGOCIÁVEL):
+        1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$' para evitar bugs de renderização LaTeX.
+        2. Não use formatação de código ou blocos HTML.
+        3. Aja como um gestor profissional: escreva parágrafos fluidos, analíticos e interligados, evitando o tom robótico de "formulário preenchido".
+        
+        A sua resposta DEVE seguir estritamente a estrutura abaixo:
         
         ## 1. Análise SWOT Dinâmica
-        **Forças:** [2 pontos fortes] | **Fraquezas:** [2 pontos fracos]
-        **Oportunidades:** [2 oportunidades] | **Ameaças:** [2 ameaças]
+        **Forças:**
+        * [Ponto forte 1]
+        * [Ponto forte 2]
+        
+        **Fraquezas:**
+        * [Ponto fraco 1]
+        * [Ponto fraco 2]
+        
+        **Oportunidades:**
+        * [Oportunidade 1]
+        * [Oportunidade 2]
+        
+        **Ameaças:**
+        * [Ameaça 1]
+        * [Ameaça 2]
         
         ## 2. Raio-X do Balanço
-        Use os números reais passados no contexto para compor esta seção.
-        * **✅ 3 Pontos Positivos:** [Descreva 3 destaques financeiros]
-        * **⚠️ 3 Pontos de Atenção (Negativos):** [Descreva 3 preocupações financeiras]
+        Baseado nos números reais:
+        * **✅ 3 Pontos Positivos:** [Descreva 3 destaques financeiros de forma fluida]
+        * **⚠️ 3 Pontos de Atenção (Negativos):** [Descreva 3 preocupações financeiras de forma fluida]
         
         ## 3. Termômetro de Notícias
         Selecione as 5 manchetes reais mais positivas e as 5 mais negativas do lote enviado.
         REGRA INEGOCIÁVEL: Ordene-as cronologicamente da data mais RECENTE para a mais ANTIGA.
         
         **Notícias Positivas Recentes:**
-        * **[Data] - [Fonte] - [Manchete]** -> *Resumo do Analista:* [Explicação de até 3 linhas]
+        * **[Data] - [Fonte] - [Manchete]**
+          *Resumo do Analista:* [Explicação fluida de até 3 linhas sobre o impacto e percepção do mercado].
         
         **Notícias Negativas Recentes:**
-        * **[Data] - [Fonte] - [Manchete]** -> *Resumo do Analista:* [Explicação de até 3 linhas]
+        * **[Data] - [Fonte] - [Manchete]**
+          *Resumo do Analista:* [Explicação fluida de até 3 linhas sobre o impacto e percepção do mercado].
         
         ---
         ## 4. O Quadrante de Decisão
-        Exponha os 4 cenários baseados nos dados fornecidos:
+        Escreva um texto natural e analítico para cada pilar, usando os números fornecidos para basear sua tese:
         
-        * 📈 **Análise Gráfica:** Preço de Compra Técnico: {suporte_ia}. (Explique se o {preco_atual_ia} atual está muito esticado ou se oferece desconto técnico).
-        * 💰 **Valuation:** Preço Justo Médio: [Consolide os valores de Bazin, Graham e DCF injetados]. (Conclua se a ação negocia com margem de segurança ou prêmio).
-        * 🏢 **Fundamentos:** Qualidade da Operação: [Cite as Estrelas F-Score e o ROIC injetados]. (Justifique se a empresa é robusta).
-        * 🌡️ **Sentimento:** Direção do Fluxo: [OTIMISTA, NEUTRO ou PESSIMISTA]. (Avalie a narrativa da mídia).
+        * 📈 **Análise Gráfica (Timing):** [Escreva um parágrafo avaliando se o preço atual está atraente em relação ao suporte técnico fornecido].
+        * 💰 **Valuation:** [Escreva um parágrafo consolidando a visão de preço justo (Bazin, Graham, DCF) e defina explicitamente se o ativo negocia com prêmio ou desconto].
+        * 🏢 **Fundamentos:** [Escreva um parágrafo julgando a qualidade da operação com base nas Estrelas F-Score e no ROIC].
+        * 🌡️ **Sentimento de Mercado:** [Defina em caixa alta OTIMISTA, NEUTRO ou PESSIMISTA, e escreva um parágrafo justificando com base no fluxo de notícias].
         
         ## 👑 Veredito Final
         **Ação Recomendada:** [COMPRAR, MANTER, AGUARDAR SUPORTE ou VENDER].
-        **Tese Final:** [Em um parágrafo de impacto, feche a análise cruzando o preço técnico, o desconto do valuation, a robustez dos fundamentos e a narrativa do mercado].
+        
+        **Tese Final:** [Escreva o fechamento da análise, cruzando todos os dados em um parágrafo de alto impacto. Fale como um executivo de mercado fechando a recomendação para o comitê].
         """
         
         model = genai.GenerativeModel('gemini-2.5-flash')
@@ -342,7 +363,7 @@ with aba_macro: renderizar_grid_cards(macro_dict, "Macro")
 with aba_br: renderizar_grid_cards(acoes_br_dict, "BR")
 with aba_usa: renderizar_grid_cards(acoes_usa_dict, "USA")
 
-# --- CARREGAMENTO DOS DADOS BASE (A MÁGICA DAS FASES 1 E 2) ---
+# --- CARREGAMENTO DOS DADOS BASE ---
 arquivo_csv = "base_dados.csv"
 dados_base_carregados = False
 
@@ -350,7 +371,6 @@ if os.path.exists(arquivo_csv):
     df = pd.read_csv(arquivo_csv, sep=";")
     dados_base_carregados = True
     
-    # Cálculos Fundamentais Originais Restabelecidos
     df['Dividendo_Pago'] = df['Preco'] * (df['Div_Yield_%'] / 100)
     df['Teto_Bazin'] = df['Dividendo_Pago'] / 0.06
     df['Margem_Bazin_%'] = np.where(df['Teto_Bazin'] > 0, ((df['Teto_Bazin'] - df['Preco']) / df['Preco']) * 100, 0)
@@ -365,7 +385,7 @@ if os.path.exists(arquivo_csv):
     df.loc[df['Crescimento_5a_%'] > 0, 'F_Score'] += 1
     df.loc[df['LPA'] > 0, 'F_Score'] += 1
     
-    # RESTAURADO O SISTEMA DE ESTRELAS
+    # SISTEMA CLÁSSICO DE ESTRELAS
     df['Saude_Visual'] = df['F_Score'].apply(lambda x: "⭐" * int(x) if pd.notnull(x) and x > 0 else "Sem Nota")
 
     mask_magica = (df['EV_EBIT'] > 0) & (df['ROIC_%'] > 0)
@@ -373,7 +393,7 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- ABA DE FUNDAMENTOS COMPLETAMENTE RESTAURADA ---
+    # --- ABA DE FUNDAMENTOS ---
     with aba_fundamentos:
         st.header("Radar de Valor e Qualidade (Fase 2)")
         
@@ -426,7 +446,7 @@ if os.path.exists(arquivo_csv):
         
         st.dataframe(df_fundo[colunas_exibicao], use_container_width=True, hide_index=True)
 
-    # --- ABA SIMULADOR COMPLETAMENTE RESTAURADA E NÃO CORTADA ---
+    # --- ABA SIMULADOR ---
     with aba_simulador:
         st.header("🎛️ Laboratório de Estratégia Ponderada")
         
