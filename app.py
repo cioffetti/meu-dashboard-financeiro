@@ -98,13 +98,13 @@ def gerar_relatorio_ia(ticker):
         st.error("⚠️ Chave GOOGLE_API_KEY não encontrada. Configure no arquivo .env para ativar a Fase 4.")
         return
         
-    st.info(f"Coletando notícias reais ao vivo e processando o cenário para **{ticker}**. Isso pode levar alguns segundos...")
+    st.info(f"Coletando até 30 notícias ao vivo e processando o cenário para **{ticker}**. Isso pode levar alguns segundos...")
     
     try:
         texto_noticias = ""
         noticias_validas = []
         
-        # 1. TENTATIVA PRIMÁRIA (YAHOO FINANCE)
+        # 1. TENTATIVA PRIMÁRIA (YAHOO FINANCE) - Aumentado para 30
         try:
             noticias_yf = yf.Ticker(ticker).news
             if noticias_yf:
@@ -120,18 +120,19 @@ def gerar_relatorio_ia(ticker):
         except Exception:
             pass
 
-        if len(noticias_validas) > 0:
-            texto_noticias = "".join(noticias_validas[:10])
+        # Se achar pelo menos 5, usa o lote do Yahoo (até 30)
+        if len(noticias_validas) > 5:
+            texto_noticias = "".join(noticias_validas[:30])
         else:
-            # 2. TENTATIVA SECUNDÁRIA (GOOGLE NEWS RSS FALLBACK)
+            # 2. TENTATIVA SECUNDÁRIA (GOOGLE NEWS RSS FALLBACK) - Aumentado para 30
             termo_busca = ticker.replace(".SA", "")
             url_news = f"https://news.google.com/rss/search?q={termo_busca}+ação+mercado&hl=pt-BR&gl=BR&ceid=BR:pt-419"
             try:
-                resp = requests.get(url_news, timeout=5)
+                resp = requests.get(url_news, timeout=10)
                 if resp.status_code == 200:
                     root = ET.fromstring(resp.text)
                     items = root.findall('.//item')
-                    for item in items[:10]:
+                    for item in items[:30]:
                         t = item.find('title').text if item.find('title') is not None else ""
                         d = item.find('pubDate').text if item.find('pubDate') is not None else ""
                         f = item.find('source').text if item.find('source') is not None else "Portal Financeiro"
@@ -144,14 +145,14 @@ def gerar_relatorio_ia(ticker):
         if not texto_noticias.strip():
             texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
 
-        # 3. INJEÇÃO DE CONTEXTO E CHAMADA DA IA (PROMPT ATUALIZADO)
+        # 3. INJEÇÃO DE CONTEXTO E CHAMADA DA IA
         data_hoje = datetime.now().strftime("%d/%m/%Y")
 
         prompt = f"""
         Hoje é dia {data_hoje}. Atue como um analista financeiro sênior. 
         Faça uma análise qualitativa profunda e ATUALIZADA da empresa com ticker {ticker}.
         
-        Para evitar desatualizações, eu busquei as manchetes REAIS e mais recentes publicadas na mídia neste exato momento.
+        Abaixo está um grande lote com as manchetes REAIS e mais recentes coletadas.
         Utilize EXCLUSIVAMENTE estas manchetes para a seção de notícias:
         {texto_noticias}
         
@@ -171,16 +172,23 @@ def gerar_relatorio_ia(ticker):
         * **⚠️ 3 Pontos de Atenção:** [Descreva 3 preocupações financeiras]
         
         ## 3. Termômetro de Notícias e Percepção de Mercado
-        Classifique as manchetes reais fornecidas acima entre positivas e negativas.
-        Para cada notícia, escreva um "Resumo do Analista" de no máximo 5 linhas, explicando de forma clara e objetiva o que aconteceu e como o mercado percebe essa informação.
+        A partir do volume de manchetes reais enviadas, SELECIONE EXATAMENTE as 5 mais positivas e as 5 mais negativas. Se houver poucas notícias, use o máximo que conseguir, mas o alvo é 5 e 5.
+        
+        REGRA DE ORDENAÇÃO: As notícias listadas (tanto na seção positiva quanto na negativa) DEVEM OBRIGATORIAMENTE ser apresentadas em ordem cronológica decrescente, ou seja, da data mais RECENTE para a data mais ANTIGA.
+        
+        Para cada notícia, escreva um "Resumo do Analista" de no máximo 5 linhas, explicando o contexto e como o mercado percebe a informação.
         
         **Notícias Positivas Recentes:**
-        * **[{data_hoje}] - [Fonte] - [Manchete]**
-        > **Resumo do Analista:** [Sua explicação de até 5 linhas sobre o fato e a percepção do mercado].
+        * **[Data da notícia] - [Fonte] - [Manchete]**
+        > **Resumo do Analista:** [Sua explicação analítica de até 5 linhas].
+        
+        (Liste até 5 positivas ordenadas da mais recente para a mais antiga)
         
         **Notícias Negativas Recentes:**
-        * **[{data_hoje}] - [Fonte] - [Manchete]**
-        > **Resumo do Analista:** [Sua explicação de até 5 linhas sobre o fato e a percepção do mercado].
+        * **[Data da notícia] - [Fonte] - [Manchete]**
+        > **Resumo do Analista:** [Sua explicação analítica de até 5 linhas].
+        
+        (Liste até 5 negativas ordenadas da mais recente para a mais antiga)
         
         Seja direto e profissional.
         """
