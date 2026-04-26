@@ -90,56 +90,72 @@ def abrir_historico_simples(ticker, nome):
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL ---
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL E RAG ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker):
     if not GOOGLE_API_KEY:
         st.error("⚠️ Chave GOOGLE_API_KEY não encontrada. Configure no arquivo .env para ativar a Fase 4.")
         return
         
-    st.info(f"O Analista de IA está processando o cenário atual, balanços e notícias para **{ticker}**. Isso pode levar alguns segundos...")
-    
-    prompt = f"""
-    Atue como um analista financeiro sênior e institucional. 
-    Faça uma análise qualitativa profunda e atualizada da empresa cujo ticker é {ticker}.
-    
-    A sua resposta DEVE seguir estritamente o formato abaixo, usando Markdown para formatação:
-    
-    ## 1. Análise SWOT Dinâmica
-    **Forças (Strengths):** [Liste 2 pontos fortes cruciais da operação/vantagem competitiva]
-    **Fraquezas (Weaknesses):** [Liste 2 pontos fracos operacionais ou de gestão]
-    **Oportunidades (Opportunities):** [Liste 2 oportunidades de crescimento no mercado/setor]
-    **Ameaças (Threats):** [Liste 2 ameaças externas, concorrência ou regulação]
-    
-    ## 2. Raio-X do Balanço (Último Trimestre)
-    * **✅ 3 Pontos Positivos:** [Descreva 3 destaques financeiros positivos do último balanço]
-    * **⚠️ 3 Pontos de Atenção (Negativos):** [Descreva 3 preocupações financeiras, ex: aumento de dívida, queda de margem]
-    
-    ## 3. Termômetro de Notícias e Fluxo
-    **Notícias Positivas Recentes:**
-    * [Manchete 1] -> Impacto no Fluxo: [Estime o impacto, ex: +1.5% de entrada de capital]
-    * [Manchete 2]
-    * [Manchete 3]
-    * [Manchete 4]
-    * [Manchete 5]
-    
-    **Notícias Negativas Recentes:**
-    * [Manchete 1] -> Impacto no Fluxo: [Estime o impacto, ex: -2.0% de saída de capital]
-    * [Manchete 2]
-    * [Manchete 3]
-    * [Manchete 4]
-    * [Manchete 5]
-    
-    Seja direto, profissional e focado em dados concretos.
-    """
+    st.info(f"Coletando notícias ao vivo e processando o cenário para **{ticker}**. Isso pode levar alguns segundos...")
     
     try:
-        # A CORREÇÃO ESTÁ AQUI: Atualizado para o modelo gemini-2.5-flash mais recente
+        # 1. CAPTURA DE NOTÍCIAS REAIS AO VIVO
+        noticias_yf = yf.Ticker(ticker).news
+        texto_noticias = ""
+        if noticias_yf:
+            for n in noticias_yf[:10]: # Pegamos as 10 mais recentes da API
+                dt_pub = datetime.fromtimestamp(n['providerPublishTime']).strftime('%d/%m/%Y')
+                fonte = n.get('publisher', 'Agência Financeira')
+                titulo = n.get('title', '')
+                texto_noticias += f"- Data: {dt_pub} | Fonte: {fonte} | Título: {titulo}\n"
+        else:
+            texto_noticias = "Sem notícias recentes reportadas na base global nas últimas semanas."
+
+        # 2. INJEÇÃO DE CONTEXTO TEMPORAL
+        data_hoje = datetime.now().strftime("%d/%m/%Y")
+
+        prompt = f"""
+        Hoje é dia {data_hoje}. Atue como um analista financeiro sênior. 
+        Faça uma análise qualitativa profunda e ATUALIZADA da empresa com ticker {ticker}.
+        
+        Para evitar desatualizações, eu busquei as manchetes REAIS e mais recentes do mercado neste exato momento.
+        Utilize EXCLUSIVAMENTE estas manchetes para a seção de notícias:
+        {texto_noticias}
+        
+        Instruções adicionais:
+        - Busque na sua base o último balanço divulgado pela empresa (o mais próximo possível de {data_hoje}). Não use balanços de 2024 se houver dados de 2025 ou 2026.
+        
+        A sua resposta DEVE seguir estritamente o formato abaixo em Markdown:
+        
+        ## 1. Análise SWOT Dinâmica
+        **Forças (Strengths):** [2 pontos fortes]
+        **Fraquezas (Weaknesses):** [2 pontos fracos]
+        **Oportunidades (Opportunities):** [2 oportunidades]
+        **Ameaças (Threats):** [2 ameaças]
+        
+        ## 2. Raio-X do Balanço (Indique o Trimestre mais recente avaliado)
+        * **✅ 3 Pontos Positivos:** [Descreva 3 destaques financeiros]
+        * **⚠️ 3 Pontos de Atenção:** [Descreva 3 preocupações financeiras]
+        
+        ## 3. Termômetro de Notícias e Fluxo
+        Classifique as manchetes reais fornecidas acima entre positivas e negativas.
+        Você DEVE obrigatoriamente colocar a [Data] e a [Fonte] exatamente como eu passei no texto injetado.
+        
+        **Notícias Positivas Recentes:**
+        * [Data] - [Fonte] - [Manchete] -> Impacto no Fluxo: [Estime o impacto direcional, ex: +1.5%]
+        
+        **Notícias Negativas Recentes:**
+        * [Data] - [Fonte] - [Manchete] -> Impacto no Fluxo: [Estime o impacto direcional, ex: -2.0%]
+        
+        Seja direto e profissional.
+        """
+        
         model = genai.GenerativeModel('gemini-2.5-flash')
         response = model.generate_content(prompt)
         st.markdown(response.text)
     except Exception as e:
-        st.error(f"Erro ao comunicar com a IA: {e}")
+        st.error(f"Erro ao comunicar com a IA ou processar notícias: {e}")
 
 # --- MOTOR DE ANÁLISE TÉCNICA (FASE 3) ---
 def calcular_indicadores_tecnicos(df):
