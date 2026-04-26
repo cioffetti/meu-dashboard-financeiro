@@ -91,7 +91,7 @@ def abrir_historico_simples(ticker, nome):
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (RAG COM DCF PURO) ---
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (RAG COM DCF PURO INSTITUCIONAL) ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker, dados_fundos=None):
     if not GOOGLE_API_KEY:
@@ -164,7 +164,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
             v_roic = dados_fundos.get('ROIC_%', 'N/A')
             
             contexto_dados += f"""
-        **VALUATION DE MERCADO (FLUXO DE CAIXA DESCONTADO - DCF):**
+        **VALUATION DE MERCADO (FLUXO DE CAIXA DESCONTADO - 2 ESTÁGIOS):**
         - Cenário Pessimista (Crescimento Zero): {moeda_ia} {v_pessimista if isinstance(v_pessimista, str) else f"{v_pessimista:.2f}"}
         - Cenário Base (Mercado e Juros Atuais): {moeda_ia} {v_base if isinstance(v_base, str) else f"{v_base:.2f}"}
         - Cenário Otimista (Upside Destravado): {moeda_ia} {v_otimista if isinstance(v_otimista, str) else f"{v_otimista:.2f}"}
@@ -180,7 +180,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         Hoje é dia {data_hoje}. Atue como o Analista Chefe do comitê de investimentos. 
         Analise o ativo {ticker}.
         
-        Abaixo estão os cenários de DCF calculados e as notícias REAIS coletadas:
+        Abaixo estão os cenários matemáticos de DCF e as notícias REAIS coletadas:
         {contexto_dados}
         
         MANCHETES:
@@ -235,7 +235,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         ---
         ## 4. O Quadrante de Decisão
         * 📈 **Análise Gráfica (Timing):** [Aprove ou rejeite a entrada com base no Suporte Técnico fornecido em relação ao preço atual].
-        * 💰 **Valuation de Mercado (Cenários):** [Avalie o preço atual frente aos cenários de Fluxo de Caixa Descontado fornecidos (Pessimista, Base, Otimista). O preço embute uma margem de segurança ou já precifica a perfeição?].
+        * 💰 **Valuation de Mercado (Cenários DCF):** [Avalie o preço atual frente aos cenários de Fluxo de Caixa Descontado fornecidos (Pessimista, Base, Otimista). O preço embute uma margem de segurança ou já precifica a perfeição?].
         * 🏢 **Fundamentos:** [Escreva julgando a qualidade da operação com base nas Estrelas F-Score e no ROIC].
         * 🌡️ **Sentimento de Mercado:** [Defina em caixa alta OTIMISTA, NEUTRO ou PESSIMISTA, e escreva justificando com base nas notícias].
         
@@ -332,7 +332,7 @@ acoes_br_dict = {ticker.replace(".SA", ""): (ticker, 2) for ticker in acoes_br_l
 acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA", "MU", "VZ", "T", "HD", "SHOP", "DIS", "SPG", "ANET", "ICE", "KO", "EQNR", "EPR", "WFC", "VICI", "O", "CPRT", "ASX", "CEPU", "NVO", "PLTR", "JBL", "QCOM", "AAPL", "MSFT", "BAC", "ORCL", "EQT", "MNST", "CVS", "HUYA", "GPC", "PFE", "ROKU", "DIBS", "LEG", "MBUU", "FVRR"]
 acoes_usa_dict = {ticker: (ticker, 2) for ticker in acoes_usa_list}
 
-# --- CRIAÇÃO DAS ABAS (INCLUINDO NOVA ABA DE VALUATION PRO) ---
+# --- CRIAÇÃO DAS ABAS ---
 aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_analises, aba_simulador = st.tabs([
     "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🎯 Raio-X & IA", "🎛️ Simulador"
 ])
@@ -392,7 +392,6 @@ if os.path.exists(arquivo_csv):
     df.loc[df['Crescimento_5a_%'] > 0, 'F_Score'] += 1
     df.loc[df['LPA'] > 0, 'F_Score'] += 1
     
-    # SISTEMA CLÁSSICO DE ESTRELAS
     df['Saude_Visual'] = df['F_Score'].apply(lambda x: "⭐" * int(x) if pd.notnull(x) and x > 0 else "Sem Nota")
 
     mask_magica = (df['EV_EBIT'] > 0) & (df['ROIC_%'] > 0)
@@ -400,30 +399,32 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- MATEMÁTICA PURA: DCF (FLUXO DE CAIXA DESCONTADO WALL STREET) ---
+    # --- MATEMÁTICA PURA: DCF DE 2 ESTÁGIOS (MÉTODO WALL STREET) ---
     df['Taxa_Apli'] = np.where(df['Origem'].str.contains("BRAPI|Fundamentus"), taxa_selic_live, taxa_us10y_live)
+    df['Ke'] = (df['Taxa_Apli'] / 100) + 0.055 # Custo de capital (Risk Free + 5.5% Prêmio de Risco)
+    df['g5'] = df['Crescimento_5a_%'].fillna(0).clip(lower=0, upper=15) / 100 # Cresc. de 5 anos limitado a 15%
+
+    def dcf_2_estagios(lpa, g5, ke, g_perp):
+        if lpa <= 0 or pd.isna(lpa): return 0
+        pv_eps = 0
+        eps_t = lpa
+        for t in range(1, 6): # Estágio 1: 5 anos de crescimento
+            eps_t *= (1 + g5)
+            pv_eps += eps_t / ((1 + ke) ** t)
+        tv = (eps_t * (1 + g_perp)) / (ke - g_perp) # Estágio 2: Perpetuidade
+        pv_tv = tv / ((1 + ke) ** 5)
+        return pv_eps + pv_tv
+
+    df['Val_Base'] = df.apply(lambda row: dcf_2_estagios(row['LPA'], row['g5'], row['Ke'], 0.03), axis=1)
+    df['Val_Pessimista'] = df.apply(lambda row: dcf_2_estagios(row['LPA'], 0.0, row['Ke'] + 0.02, 0.01), axis=1)
+    df['Val_Otimista'] = df.apply(lambda row: dcf_2_estagios(row['LPA'], min(row['g5'] + 0.03, 0.15), max(row['Ke'] - 0.01, 0.06), 0.04), axis=1)
     
-    # Custo de Capital (Ke) = Taxa Livre de Risco + Prêmio de Risco de Mercado (5%)
-    df['Ke'] = (df['Taxa_Apli'] / 100) + 0.05
-    df['Ke_Pessimista'] = df['Ke'] + 0.02
-    df['Ke_Otimista'] = np.maximum(df['Ke'] - 0.01, 0.06)
+    df['Justo_DCF'] = df['Val_Base'] # Retrocompatibilidade com as outras abas
 
-    # Crescimento
-    df['g_base'] = df['Crescimento_5a_%'].fillna(0).clip(lower=0, upper=10) / 100
-    df['g_otimista'] = df['Crescimento_5a_%'].fillna(0).clip(lower=0, upper=15) / 100
-
-    # Modelagem DCF (Modelo de Gordon para perpetuidade com g_teto de 3%)
-    df['Val_Pessimista'] = np.where(df['LPA'] > 0, df['LPA'] / df['Ke_Pessimista'], 0) # 0% Crescimento
-    df['Val_Base'] = np.where(df['LPA'] > 0, (df['LPA'] * (1 + df['g_base'])) / (df['Ke'] - 0.03), 0)
-    df['Val_Otimista'] = np.where(df['LPA'] > 0, (df['LPA'] * (1 + df['g_otimista'])) / (df['Ke_Otimista'] - 0.03), 0)
-
-    # Compatibilidade com outras abas
-    df['Justo_DCF'] = df['Val_Base']
-
-    # --- NOVA ABA: VALUATION PRO ---
+    # --- ABA DE VALUATION PRO ---
     with aba_valuation:
-        st.header("🧮 Valuation de Mercado (DCF / Teste de Estresse)")
-        st.write("Cálculo Institucional de Fluxo de Caixa Descontado (Gordon Growth) sob três cenários econômicos e operacionais.")
+        st.header("🧮 Valuation de Mercado (DCF de 2 Estágios)")
+        st.write("Cálculo Institucional de Fluxo de Caixa Descontado em dois estágios (5 anos + Perpetuidade).")
         
         df_cenarios = df.copy()
         df_cenarios = df_cenarios[['Ticker', 'Preco', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Origem']]
@@ -437,12 +438,12 @@ if os.path.exists(arquivo_csv):
             return f"{simb} {linha[col]:.2f}"
             
         df_cenarios['Preco Atual'] = df_cenarios.apply(lambda r: formata_val(r, 'Preco'), axis=1)
-        df_cenarios['🔴 Cenário Pessimista (0% Cresc. / Risco Alto)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Pessimista'), axis=1)
+        df_cenarios['🔴 Cenário Pessimista (Cresc. Zero / Risco Alto)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Pessimista'), axis=1)
         df_cenarios['🟡 Cenário Base (Mercado Atual)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Base'), axis=1)
         df_cenarios['🟢 Cenário Otimista (Alto Cresc. / Risco Baixo)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Otimista'), axis=1)
         
         st.dataframe(
-            df_cenarios[['Ticker', 'Preco Atual', '🔴 Cenário Pessimista (0% Cresc. / Risco Alto)', '🟡 Cenário Base (Mercado Atual)', '🟢 Cenário Otimista (Alto Cresc. / Risco Baixo)']], 
+            df_cenarios[['Ticker', 'Preco Atual', '🔴 Cenário Pessimista (Cresc. Zero / Risco Alto)', '🟡 Cenário Base (Mercado Atual)', '🟢 Cenário Otimista (Alto Cresc. / Risco Baixo)']], 
             use_container_width=True, hide_index=True
         )
 
