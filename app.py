@@ -91,7 +91,7 @@ def abrir_historico_simples(ticker, nome):
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (O VEREDITO COM PREÇO) ---
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (VEREDITO COM CENÁRIOS) ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker, dados_fundos=None):
     if not GOOGLE_API_KEY:
@@ -157,17 +157,17 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         - Suporte Gráfico (Preço Alvo Técnico): {suporte_ia}
         """
         if dados_fundos:
-            v_bazin = dados_fundos.get('Teto_Bazin', 'N/A')
-            v_graham = dados_fundos.get('Justo_Graham', 'N/A')
-            v_dcf = dados_fundos.get('Justo_DCF', 'N/A')
+            v_pessimista = dados_fundos.get('Val_Pessimista', 'N/A')
+            v_base = dados_fundos.get('Val_Base', 'N/A')
+            v_otimista = dados_fundos.get('Val_Otimista', 'N/A')
             v_fscore = dados_fundos.get('F_Score', 'N/A')
             v_roic = dados_fundos.get('ROIC_%', 'N/A')
             
             contexto_dados += f"""
-        **VALUATION E FUNDAMENTOS REAIS DO TERMINAL:**
-        - Preço Justo Bazin (Teto de Renda): {v_bazin}
-        - Preço Justo Graham (Patrimônio): {v_graham}
-        - Preço Justo DCF (Fluxo de Caixa): {v_dcf}
+        **CENÁRIOS DE VALUATION REAIS DO TERMINAL:**
+        - Cenário Pessimista (Estresse): {moeda_ia} {v_pessimista if isinstance(v_pessimista, str) else f"{v_pessimista:.2f}"}
+        - Cenário Base (Mercado Atual): {moeda_ia} {v_base if isinstance(v_base, str) else f"{v_base:.2f}"}
+        - Cenário Otimista (Upside): {moeda_ia} {v_otimista if isinstance(v_otimista, str) else f"{v_otimista:.2f}"}
         - Nota de Qualidade da Empresa (F-Score): {v_fscore} de 5 estrelas.
         - ROIC Atual: {v_roic}%
             """
@@ -178,7 +178,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         Hoje é dia {data_hoje}. Atue como o Analista Chefe do comitê de investimentos. 
         Analise o ativo {ticker}.
         
-        Abaixo estão os cálculos matemáticos precisos e as notícias REAIS coletadas:
+        Abaixo estão os cenários matemáticos precisos calculados pelo nosso robô e as notícias REAIS coletadas:
         {contexto_dados}
         
         MANCHETES:
@@ -186,7 +186,8 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         
         REGRA DE FORMATAÇÃO E ESTILO (INEGOCIÁVEL):
         1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$'.
-        2. Nas Notícias, você DEVE pular uma linha entre a Manchete e o 'Resumo do Analista' para que a formatação não fique espremida na tela.
+        2. Na Matriz SWOT, você DEVE fornecer EXATAMENTE 3 tópicos para cada categoria.
+        3. Nas Notícias, pule uma linha entre a Manchete e o 'Resumo do Analista'.
         
         A sua resposta DEVE seguir estritamente a estrutura abaixo:
         
@@ -194,21 +195,25 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         **Forças:**
         * [Ponto forte 1]
         * [Ponto forte 2]
+        * [Ponto forte 3]
         
         **Fraquezas:**
         * [Ponto fraco 1]
         * [Ponto fraco 2]
+        * [Ponto fraco 3]
         
         **Oportunidades:**
         * [Oportunidade 1]
         * [Oportunidade 2]
+        * [Oportunidade 3]
         
         **Ameaças:**
         * [Ameaça 1]
         * [Ameaça 2]
+        * [Ameaça 3]
         
         ## 2. Raio-X do Balanço (Foco Operacional)
-        REGRA: Avalie APENAS a qualidade da operação e a saúde da empresa (ROIC, Estrelas). É expressamente PROIBIDO comparar a saúde com o preço atual da ação ou valuation nesta seção. Fale do negócio, não do preço.
+        REGRA: Avalie APENAS a qualidade da operação e a saúde (ROIC, Estrelas). É proibido falar de valuation aqui.
         * **✅ 3 Pontos Positivos:** [Descreva 3 destaques da operação de forma fluida]
         * **⚠️ 3 Pontos de Atenção (Negativos):** [Descreva 3 preocupações operacionais/financeiras]
         
@@ -218,24 +223,24 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         **Notícias Positivas Recentes:**
         * **[Data] - [Fonte] - [Manchete]**
         
-          **Resumo do Analista:** [Explicação fluida e separada da manchete por uma linha].
+          **Resumo do Analista:** [Explicação fluida e separada da manchete].
         
         **Notícias Negativas Recentes:**
         * **[Data] - [Fonte] - [Manchete]**
         
-          **Resumo do Analista:** [Explicação fluida e separada da manchete por uma linha].
+          **Resumo do Analista:** [Explicação fluida e separada da manchete].
         
         ---
         ## 4. O Quadrante de Decisão
-        * 📈 **Análise Gráfica (Timing):** [Escreva avaliando se o preço atual está atraente em relação ao Suporte Técnico fornecido].
-        * 💰 **Valuation:** [Escreva consolidando a visão de preço justo (Bazin, Graham, DCF) e defina se a ação negocia com prêmio ou desconto].
+        * 📈 **Análise Gráfica (Timing):** [Aprove ou rejeite a entrada com base no Suporte Técnico fornecido em relação ao preço atual].
+        * 💰 **Valuation de Mercado (Cenários):** [Confronte o preço atual com os 3 cenários informados: Pessimista, Base e Otimista. O preço atual precifica o caos ou a perfeição?].
         * 🏢 **Fundamentos:** [Escreva julgando a qualidade da operação com base nas Estrelas F-Score e no ROIC].
         * 🌡️ **Sentimento de Mercado:** [Defina em caixa alta OTIMISTA, NEUTRO ou PESSIMISTA, e escreva justificando com base nas notícias].
         
         ## 👑 Veredito Final
         **Ação Recomendada:** [COMPRAR, MANTER, AGUARDAR SUPORTE ou VENDER].
         
-        **Preço Sugerido para Compra:** [Com base no Suporte e no Valuation, cravar um Preço Teto exato ou uma Faixa Ideal para aportar].
+        **Preço Sugerido para Compra:** [Com base no Suporte e no Cenário Base de Valuation, cravar um Preço Teto ideal para aportar].
         
         **Tese Final:** [Escreva o fechamento da análise, cruzando todos os dados em um parágrafo de alto impacto].
         """
@@ -325,9 +330,9 @@ acoes_br_dict = {ticker.replace(".SA", ""): (ticker, 2) for ticker in acoes_br_l
 acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA", "MU", "VZ", "T", "HD", "SHOP", "DIS", "SPG", "ANET", "ICE", "KO", "EQNR", "EPR", "WFC", "VICI", "O", "CPRT", "ASX", "CEPU", "NVO", "PLTR", "JBL", "QCOM", "AAPL", "MSFT", "BAC", "ORCL", "EQT", "MNST", "CVS", "HUYA", "GPC", "PFE", "ROKU", "DIBS", "LEG", "MBUU", "FVRR"]
 acoes_usa_dict = {ticker: (ticker, 2) for ticker in acoes_usa_list}
 
-# --- CRIAÇÃO DAS ABAS ---
-aba_macro, aba_br, aba_usa, aba_fundamentos, aba_analises, aba_simulador = st.tabs([
-    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🎯 Raio-X & IA", "🎛️ Simulador"
+# --- CRIAÇÃO DAS ABAS (INCLUINDO NOVA ABA DE VALUATION) ---
+aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_analises, aba_simulador = st.tabs([
+    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🎯 Raio-X & IA", "🎛️ Simulador"
 ])
 
 def renderizar_grid_cards(dicionario_ativos, mercado):
@@ -393,37 +398,61 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
+    # --- PRÉ-CÁLCULO DINÂMICO DOS CENÁRIOS DE VALUATION ---
+    df['Taxa_Apli'] = np.where(df['Origem'].str.contains("BRAPI|Fundamentus"), taxa_selic_live, taxa_us10y_live)
+    df['Cresc_Base'] = df['Crescimento_5a_%'].clip(lower=0, upper=15)
+    
+    # Pessimista: Crescimento Zero, Risco Maior (+2% de juros)
+    df['Val_Pessimista'] = np.where(df['LPA'] > 0, df['LPA'] * 8.5 * (4.4 / (df['Taxa_Apli'] + 2)), 0)
+    
+    # Base (Mercado): Crescimento Atual, Juros de Hoje
+    df['Val_Base'] = np.where(df['LPA'] > 0, df['LPA'] * (8.5 + 2 * df['Cresc_Base']) * (4.4 / df['Taxa_Apli']), 0)
+    
+    # Otimista: Crescimento Maior (+5%), Risco Menor (-2% de juros)
+    df['Val_Otimista'] = np.where(df['LPA'] > 0, df['LPA'] * (8.5 + 2 * (df['Cresc_Base'] + 5)) * (4.4 / np.maximum(df['Taxa_Apli'] - 2, 2)), 0)
+
+    # Atualizamos também a variável Justo_DCF original para o simulador usar a mesma lógica base
+    df['Justo_DCF'] = df['Val_Base']
+
+    # --- NOVA ABA: VALUATION PRO ---
+    with aba_valuation:
+        st.header("🧮 Valuation de Mercado (Teste de Estresse)")
+        st.write("Análise do Preço Intrínseco baseada no Fluxo de Caixa Descontado projetado sob três cenários econômicos distintos.")
+        
+        df_cenarios = df.copy()
+        df_cenarios = df_cenarios[['Ticker', 'Preco', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Origem']]
+        df_cenarios = df_cenarios[df_cenarios['Val_Base'] > 0] # Filtra só quem tem lucro projetável
+        
+        # Cria a margem de segurança do cenário base para rankear
+        df_cenarios['Margem_Base'] = ((df_cenarios['Val_Base'] - df_cenarios['Preco']) / df_cenarios['Preco']) * 100
+        df_cenarios = df_cenarios.sort_values(by='Margem_Base', ascending=False)
+        
+        def formata_val(linha, col):
+            simb = "R$" if "Fundamentus" in str(linha['Origem']) else "$"
+            return f"{simb} {linha[col]:.2f}"
+            
+        df_cenarios['Preco'] = df_cenarios.apply(lambda r: formata_val(r, 'Preco'), axis=1)
+        df_cenarios['🔴 Cenário Pessimista (0% Cresc. / Risco Alto)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Pessimista'), axis=1)
+        df_cenarios['🟡 Cenário Base (Mercado Atual)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Base'), axis=1)
+        df_cenarios['🟢 Cenário Otimista (Alto Cresc. / Risco Baixo)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Otimista'), axis=1)
+        
+        st.dataframe(
+            df_cenarios[['Ticker', 'Preco', '🔴 Cenário Pessimista (0% Cresc. / Risco Alto)', '🟡 Cenário Base (Mercado Atual)', '🟢 Cenário Otimista (Alto Cresc. / Risco Baixo)']], 
+            use_container_width=True, hide_index=True
+        )
+
     # --- ABA DE FUNDAMENTOS ---
     with aba_fundamentos:
         st.header("Radar de Valor e Qualidade (Fase 2)")
-        
-        with st.expander("⚙️ Controles de Projeção DCF e Filtros", expanded=True):
-            col_mercado, col_br, col_usa = st.columns([1, 1, 1])
-            mercado = col_mercado.radio("Mercado Alvo:", ["Todos", "Ações Brasil", "Ações EUA"], key="radio_fundamentos")
-            taxa_juros_br = col_br.slider(f"Selic Atual BCB (%)", 4.0, 18.0, float(taxa_selic_live), 0.25, key="selic_fundamentos")
-            taxa_juros_usa = col_usa.slider(f"Treasury 10Y Atual (%)", 1.0, 10.0, float(taxa_us10y_live), 0.10, key="us10_fundamentos")
-
         df_fundo = df.copy()
-        df_fundo['Taxa_Aplicada'] = np.where(df_fundo['Origem'].str.contains("BRAPI|Fundamentus"), taxa_juros_br, taxa_juros_usa)
         
-        df_fundo['Crescimento_Limitado'] = df_fundo['Crescimento_5a_%'].clip(lower=0, upper=15)
-        df_fundo['Justo_DCF'] = np.where(df_fundo['LPA'] > 0, df_fundo['LPA'] * (8.5 + 2 * df_fundo['Crescimento_Limitado']) * (4.4 / df_fundo['Taxa_Aplicada']), 0)
-        df_fundo['Margem_DCF_%'] = np.where(df_fundo['Justo_DCF'] > 0, ((df_fundo['Justo_DCF'] - df_fundo['Preco']) / df_fundo['Preco']) * 100, 0)
-
-        df_fundo['Rank_Bazin'] = df_fundo['Margem_Bazin_%'].rank(ascending=False)
-        df_fundo['Rank_Graham'] = df_fundo['Margem_Graham_%'].rank(ascending=False)
-        df_fundo['Rank_DCF'] = df_fundo['Margem_DCF_%'].rank(ascending=False)
-        
-        df_fundo['Nota_Convergencia'] = df_fundo['Rank_Bazin'] + df_fundo['Rank_Graham'] + df_fundo['Rank_DCF'] + df_fundo['Pontuacao_Magica'] - (df_fundo['F_Score'] * 10)
-        
+        # Filtros visuais simples
+        mercado = st.radio("Mercado Alvo:", ["Todos", "Ações Brasil", "Ações EUA"], horizontal=True)
         if mercado == "Ações Brasil": df_fundo = df_fundo[df_fundo['Origem'].str.contains("BRAPI|Fundamentus", na=False)]
         elif mercado == "Ações EUA": df_fundo = df_fundo[df_fundo['Origem'].str.contains("Finnhub|Yahoo", na=False)]
         
-        df_fundo = df_fundo.sort_values(by='Nota_Convergencia', ascending=True)
-        df_fundo.reset_index(drop=True, inplace=True)
-        df_fundo.index = df_fundo.index + 1
-        df_fundo['Rank_Geral'] = df_fundo.index.astype(str) + "º"
-
+        df_fundo = df_fundo.sort_values(by='F_Score', ascending=False)
+        
         colunas_dinheiro = ['Preco', 'Teto_Bazin', 'Justo_Graham', 'Justo_DCF']
         def formatar_moeda(linha, nome_coluna):
             valor = linha[nome_coluna]
@@ -434,17 +463,7 @@ if os.path.exists(arquivo_csv):
         for col in colunas_dinheiro:
             df_fundo[col] = df_fundo.apply(lambda row: formatar_moeda(row, col), axis=1)
             
-        colunas_percentuais = ['Margem_Bazin_%', 'Margem_Graham_%', 'Margem_DCF_%', 'ROIC_%']
-        for col in colunas_percentuais:
-            df_fundo[col] = df_fundo[col].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) and x != 0 else "N/A")
-
-        colunas_exibicao = [
-            'Rank_Geral', 'Ticker', 'Preco', 'Saude_Visual', 'ROIC_%', 'EV_EBIT',
-            'Teto_Bazin', 'Justo_Graham', 'Justo_DCF', 
-            'Margem_Bazin_%', 'Margem_Graham_%', 'Margem_DCF_%'
-        ]
-        
-        st.dataframe(df_fundo[colunas_exibicao], use_container_width=True, hide_index=True)
+        st.dataframe(df_fundo[['Ticker', 'Preco', 'Saude_Visual', 'ROIC_%', 'Teto_Bazin', 'Justo_Graham', 'Justo_DCF']], use_container_width=True, hide_index=True)
 
     # --- ABA SIMULADOR ---
     with aba_simulador:
@@ -457,14 +476,9 @@ if os.path.exists(arquivo_csv):
             w_magic = c3.slider("Qualidade (Magic)", 0, 100, 20)
             w_fscore = c4.slider("Saúde (F-Score)", 0, 100, 20)
             w_dcf = c5.slider("Futuro (DCF)", 0, 100, 20)
-            st.caption("O Simulador utiliza as taxas ao vivo para o DCF.")
 
         df_sim = df.copy()
-        df_sim['Taxa_Apli'] = np.where(df_sim['Origem'].str.contains("BRAPI|Fundamentus"), taxa_selic_live, taxa_us10y_live)
-        df_sim['Cresc_Lim'] = df_sim['Crescimento_5a_%'].clip(lower=0, upper=15)
-        df_sim['Justo_DCF'] = np.where(df_sim['LPA'] > 0, df_sim['LPA'] * (8.5 + 2 * df_sim['Cresc_Lim']) * (4.4 / df_sim['Taxa_Apli']), 0)
         df_sim['Margem_DCF_%'] = np.where(df_sim['Justo_DCF'] > 0, ((df_sim['Justo_DCF'] - df_sim['Preco']) / df_sim['Preco']) * 100, 0)
-
         df_sim['N_Graham'] = df_sim['Margem_Graham_%'].rank(pct=True) * 100
         df_sim['N_Bazin'] = df_sim['Margem_Bazin_%'].rank(pct=True) * 100
         df_sim['N_DCF'] = df_sim['Margem_DCF_%'].rank(pct=True) * 100
@@ -491,10 +505,11 @@ if os.path.exists(arquivo_csv):
         st.dataframe(df_sim[['Rank', 'Ticker', 'Preco_Atual', 'Nota_Final', 'Veredito', 'Saude_Visual']], use_container_width=True, hide_index=True)
 
 else: 
-    with aba_fundamentos: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro para gerar o banco de dados.")
-    with aba_simulador: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro para gerar o banco de dados.")
+    with aba_valuation: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
+    with aba_fundamentos: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
+    with aba_simulador: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
 
-# --- ABA DE ANÁLISES (TÉCNICA + IA NO RAG QUADRANTE) ---
+# --- ABA DE ANÁLISES (TÉCNICA + IA NO RAG QUADRANTE DE CENÁRIOS) ---
 with aba_analises:
     st.header("🎯 Central de Inteligência Profissional")
     st.write("Selecione um ativo para realizar análises cruzadas sob demanda.")
@@ -513,8 +528,5 @@ with aba_analises:
             linha = df[df['Ticker'].str.contains(ticker_limpo, na=False)]
             if not linha.empty:
                 dados_envio = linha.iloc[0].to_dict()
-                linha_fundo = df_fundo[df_fundo['Ticker'].str.contains(ticker_limpo, na=False)]
-                if not linha_fundo.empty:
-                    dados_envio['Justo_DCF'] = linha_fundo.iloc[0].get('Justo_DCF', 'N/A')
         
         gerar_relatorio_ia(ativo_selecionado, dados_envio)
