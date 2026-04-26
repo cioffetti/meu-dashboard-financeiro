@@ -90,7 +90,7 @@ def abrir_historico_simples(ticker, nome):
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (NOVO) ---
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker):
     if not GOOGLE_API_KEY:
@@ -134,7 +134,8 @@ def gerar_relatorio_ia(ticker):
     """
     
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # A CORREÇÃO ESTÁ AQUI: Atualizado para o modelo gemini-2.5-flash mais recente
+        model = genai.GenerativeModel('gemini-2.5-flash')
         response = model.generate_content(prompt)
         st.markdown(response.text)
     except Exception as e:
