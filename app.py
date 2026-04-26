@@ -8,11 +8,16 @@ import requests
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+import google.generativeai as genai
 
 # --- CONFIGURAÇÃO DE SEGURANÇA HÍBRIDA ---
 load_dotenv()
 BRAPI_KEY = st.secrets.get("BRAPI_KEY", os.getenv("BRAPI_KEY", ""))
 FINNHUB_KEY = st.secrets.get("FINNHUB_KEY", os.getenv("FINNHUB_KEY", ""))
+GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", os.getenv("GOOGLE_API_KEY", ""))
+
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
 
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(page_title="Dashboard Macro Pro", layout="wide")
@@ -62,7 +67,7 @@ def buscar_taxas_macro():
 
 taxa_selic_live, taxa_us10y_live = buscar_taxas_macro()
 
-# --- NOVO: JANELA DE HISTÓRICO SIMPLES (5 ANOS) ---
+# --- JANELA DE HISTÓRICO SIMPLES (5 ANOS) ---
 @st.dialog("📈 Histórico de Longo Prazo (5 Anos)", width="large")
 def abrir_historico_simples(ticker, nome):
     st.write(f"Carregando histórico de 5 anos para **{nome}** ({ticker})...")
@@ -73,27 +78,67 @@ def abrir_historico_simples(ticker, nome):
             return
             
         fig = go.Figure()
-        # Gráfico de área (linha com preenchimento) limpo e elegante
         fig.add_trace(go.Scatter(
-            x=dados.index, 
-            y=dados['Close'], 
-            fill='tozeroy', 
-            mode='lines', 
-            line=dict(color='#00FFCC', width=2),
-            fillcolor='rgba(0, 255, 204, 0.1)',
-            name="Preço"
+            x=dados.index, y=dados['Close'], fill='tozeroy', mode='lines', 
+            line=dict(color='#00FFCC', width=2), fillcolor='rgba(0, 255, 204, 0.1)', name="Preço"
         ))
-        
         fig.update_layout(
-            template="plotly_dark", 
-            height=500, 
-            margin=dict(l=0, r=0, t=10, b=0), 
-            xaxis_rangeslider_visible=False,
-            yaxis_title="Cotação"
+            template="plotly_dark", height=500, margin=dict(l=0, r=0, t=10, b=0), 
+            xaxis_rangeslider_visible=False, yaxis_title="Cotação"
         )
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
+
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (NOVO) ---
+@st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
+def gerar_relatorio_ia(ticker):
+    if not GOOGLE_API_KEY:
+        st.error("⚠️ Chave GOOGLE_API_KEY não encontrada. Configure no arquivo .env para ativar a Fase 4.")
+        return
+        
+    st.info(f"O Analista de IA está processando o cenário atual, balanços e notícias para **{ticker}**. Isso pode levar alguns segundos...")
+    
+    prompt = f"""
+    Atue como um analista financeiro sênior e institucional. 
+    Faça uma análise qualitativa profunda e atualizada da empresa cujo ticker é {ticker}.
+    
+    A sua resposta DEVE seguir estritamente o formato abaixo, usando Markdown para formatação:
+    
+    ## 1. Análise SWOT Dinâmica
+    **Forças (Strengths):** [Liste 2 pontos fortes cruciais da operação/vantagem competitiva]
+    **Fraquezas (Weaknesses):** [Liste 2 pontos fracos operacionais ou de gestão]
+    **Oportunidades (Opportunities):** [Liste 2 oportunidades de crescimento no mercado/setor]
+    **Ameaças (Threats):** [Liste 2 ameaças externas, concorrência ou regulação]
+    
+    ## 2. Raio-X do Balanço (Último Trimestre)
+    * **✅ 3 Pontos Positivos:** [Descreva 3 destaques financeiros positivos do último balanço]
+    * **⚠️ 3 Pontos de Atenção (Negativos):** [Descreva 3 preocupações financeiras, ex: aumento de dívida, queda de margem]
+    
+    ## 3. Termômetro de Notícias e Fluxo
+    **Notícias Positivas Recentes:**
+    * [Manchete 1] -> Impacto no Fluxo: [Estime o impacto, ex: +1.5% de entrada de capital]
+    * [Manchete 2]
+    * [Manchete 3]
+    * [Manchete 4]
+    * [Manchete 5]
+    
+    **Notícias Negativas Recentes:**
+    * [Manchete 1] -> Impacto no Fluxo: [Estime o impacto, ex: -2.0% de saída de capital]
+    * [Manchete 2]
+    * [Manchete 3]
+    * [Manchete 4]
+    * [Manchete 5]
+    
+    Seja direto, profissional e focado em dados concretos.
+    """
+    
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        st.markdown(response.text)
+    except Exception as e:
+        st.error(f"Erro ao comunicar com a IA: {e}")
 
 # --- MOTOR DE ANÁLISE TÉCNICA (FASE 3) ---
 def calcular_indicadores_tecnicos(df):
@@ -143,13 +188,8 @@ def abrir_raio_x(ticker):
         df_tec = df_tec.tail(250) 
         
         fig = make_subplots(
-            rows=3, cols=1, 
-            shared_xaxes=True, 
-            row_heights=[0.6, 0.2, 0.2], 
-            vertical_spacing=0.05,
-            specs=[[{"secondary_y": False}], 
-                   [{"secondary_y": True}], 
-                   [{"secondary_y": False}]]
+            rows=3, cols=1, shared_xaxes=True, row_heights=[0.6, 0.2, 0.2], vertical_spacing=0.05,
+            specs=[[{"secondary_y": False}], [{"secondary_y": True}], [{"secondary_y": False}]]
         )
         
         fig.add_trace(go.Candlestick(x=df_tec.index, open=df_tec['Open'], high=df_tec['High'], low=df_tec['Low'], close=df_tec['Close'], name='Preço'), row=1, col=1)
@@ -172,12 +212,8 @@ def abrir_raio_x(ticker):
         fig.add_hline(y=30, line_dash="dot", line_color="green", row=3, col=1)
 
         fig.update_layout(
-            height=700, 
-            template="plotly_dark", 
-            showlegend=False, 
-            margin=dict(l=0, r=0, t=10, b=0), 
-            xaxis_rangeslider_visible=False,
-            yaxis2=dict(showticklabels=False)
+            height=700, template="plotly_dark", showlegend=False, margin=dict(l=0, r=0, t=10, b=0), 
+            xaxis_rangeslider_visible=False, yaxis2=dict(showticklabels=False)
         )
         st.plotly_chart(fig, use_container_width=True)
         
@@ -188,7 +224,6 @@ def abrir_raio_x(ticker):
         if suportes:
             distancia = ((preco_atual - suportes[0]) / preco_atual) * 100
             st.markdown(f"**Distância para o Piso Seguro:** Faltam {distancia:.2f}% de queda para atingir o suporte gráfico mais próximo.")
-            
             moeda = "R$" if ".SA" in ticker else "US$"
             st.success(f"🎯 **Preço Atrativo de Entrada (Suporte Mais Próximo):** {moeda} {suportes[0]:.2f}")
 
@@ -203,8 +238,8 @@ acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA",
 acoes_usa_dict = {ticker: (ticker, 2) for ticker in acoes_usa_list}
 
 # --- 3. CRIAÇÃO DAS ABAS ---
-aba_macro, aba_br, aba_usa, aba_fundamentos, aba_tecnica, aba_simulador = st.tabs([
-    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🔬 Raio-X Técnico", "🎛️ Simulador"
+aba_macro, aba_br, aba_usa, aba_fundamentos, aba_analises, aba_simulador = st.tabs([
+    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🎯 Raio-X & IA", "🎛️ Simulador"
 ])
 
 def renderizar_grid_cards(dicionario_ativos, mercado):
@@ -233,7 +268,6 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                                 fig.update_layout(template="plotly_dark", height=80, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                                 
-                                # NOVO BOTÃO DE ACESSO AO GRÁFICO 5 ANOS
                                 if st.button("🔍 Ver Histórico 5 Anos", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
                                     abrir_historico_simples(ticker, nome_exibicao)
                                     
@@ -243,17 +277,20 @@ with aba_macro: renderizar_grid_cards(macro_dict, "Macro")
 with aba_br: renderizar_grid_cards(acoes_br_dict, "BR")
 with aba_usa: renderizar_grid_cards(acoes_usa_dict, "USA")
 
-# --- ABA DE RAIO-X TÉCNICO ---
-with aba_tecnica:
-    st.header("🔬 Análise Técnica e Algoritmo de Suportes")
-    st.write("Selecione um ativo para abrir o detalhamento profundo de timing.")
+# --- ABA DE ANÁLISES (TÉCNICA + IA) ---
+with aba_analises:
+    st.header("🎯 Central de Inteligência: Gráfica e Qualitativa")
+    st.write("Selecione um ativo para realizar análises profundas sob demanda.")
     
-    col1, col2 = st.columns([1, 2])
+    col1, col2, col3 = st.columns([2, 1, 1])
     todos_ativos = [t for t in acoes_br_list + acoes_usa_list if "11.SA" not in t]
     ativo_selecionado = col1.selectbox("Escolha a Ação:", sorted(todos_ativos))
     
-    if col1.button("🔍 Abrir Raio-X Técnico", use_container_width=True):
+    if col2.button("📈 Abrir Raio-X Técnico (Gráficos)", use_container_width=True):
         abrir_raio_x(ativo_selecionado)
+        
+    if col3.button("🧠 Gerar Parecer da IA (SWOT & Notícias)", use_container_width=True):
+        gerar_relatorio_ia(ativo_selecionado)
 
 # --- 4. PREPARAÇÃO DOS DADOS BASE ---
 arquivo_csv = "base_dados.csv"
