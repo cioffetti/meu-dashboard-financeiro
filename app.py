@@ -22,7 +22,7 @@ if GOOGLE_API_KEY:
 
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(page_title="Terminal Financeiro Pro", layout="wide")
-st.title("🏛️ Monitor Financeiro - Pro")
+st.title("🏛️ Terminal de Inteligência Financeira")
 
 def formatar_br(valor, casas):
     if pd.isna(valor) or valor is None: return "N/A"
@@ -91,7 +91,7 @@ def abrir_historico_simples(ticker, nome):
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (O VEREDITO FLUIDO E LIMPO) ---
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (O VEREDITO COM PREÇO) ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker, dados_fundos=None):
     if not GOOGLE_API_KEY:
@@ -185,9 +185,8 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         {texto_noticias}
         
         REGRA DE FORMATAÇÃO E ESTILO (INEGOCIÁVEL):
-        1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$' para evitar bugs de renderização LaTeX.
-        2. Não use formatação de código ou blocos HTML.
-        3. Aja como um gestor profissional: escreva parágrafos fluidos, analíticos e interligados, evitando o tom robótico de "formulário preenchido".
+        1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$'.
+        2. Nas Notícias, você DEVE pular uma linha entre a Manchete e o 'Resumo do Analista' para que a formatação não fique espremida na tela.
         
         A sua resposta DEVE seguir estritamente a estrutura abaixo:
         
@@ -208,36 +207,37 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         * [Ameaça 1]
         * [Ameaça 2]
         
-        ## 2. Raio-X do Balanço
-        Baseado nos números reais:
-        * **✅ 3 Pontos Positivos:** [Descreva 3 destaques financeiros de forma fluida]
-        * **⚠️ 3 Pontos de Atenção (Negativos):** [Descreva 3 preocupações financeiras de forma fluida]
+        ## 2. Raio-X do Balanço (Foco Operacional)
+        REGRA: Avalie APENAS a qualidade da operação e a saúde da empresa (ROIC, Estrelas). É expressamente PROIBIDO comparar a saúde com o preço atual da ação ou valuation nesta seção. Fale do negócio, não do preço.
+        * **✅ 3 Pontos Positivos:** [Descreva 3 destaques da operação de forma fluida]
+        * **⚠️ 3 Pontos de Atenção (Negativos):** [Descreva 3 preocupações operacionais/financeiras]
         
         ## 3. Termômetro de Notícias
-        Selecione as 5 manchetes reais mais positivas e as 5 mais negativas do lote enviado.
-        REGRA INEGOCIÁVEL: Ordene-as cronologicamente da data mais RECENTE para a mais ANTIGA.
+        Selecione as 5 manchetes reais mais positivas e as 5 mais negativas. Ordene-as da mais RECENTE para a mais ANTIGA.
         
         **Notícias Positivas Recentes:**
         * **[Data] - [Fonte] - [Manchete]**
-          *Resumo do Analista:* [Explicação fluida de até 3 linhas sobre o impacto e percepção do mercado].
+        
+          **Resumo do Analista:** [Explicação fluida e separada da manchete por uma linha].
         
         **Notícias Negativas Recentes:**
         * **[Data] - [Fonte] - [Manchete]**
-          *Resumo do Analista:* [Explicação fluida de até 3 linhas sobre o impacto e percepção do mercado].
+        
+          **Resumo do Analista:** [Explicação fluida e separada da manchete por uma linha].
         
         ---
         ## 4. O Quadrante de Decisão
-        Escreva um texto natural e analítico para cada pilar, usando os números fornecidos para basear sua tese:
-        
-        * 📈 **Análise Gráfica (Timing):** [Escreva um parágrafo avaliando se o preço atual está atraente em relação ao suporte técnico fornecido].
-        * 💰 **Valuation:** [Escreva um parágrafo consolidando a visão de preço justo (Bazin, Graham, DCF) e defina explicitamente se o ativo negocia com prêmio ou desconto].
-        * 🏢 **Fundamentos:** [Escreva um parágrafo julgando a qualidade da operação com base nas Estrelas F-Score e no ROIC].
-        * 🌡️ **Sentimento de Mercado:** [Defina em caixa alta OTIMISTA, NEUTRO ou PESSIMISTA, e escreva um parágrafo justificando com base no fluxo de notícias].
+        * 📈 **Análise Gráfica (Timing):** [Escreva avaliando se o preço atual está atraente em relação ao Suporte Técnico fornecido].
+        * 💰 **Valuation:** [Escreva consolidando a visão de preço justo (Bazin, Graham, DCF) e defina se a ação negocia com prêmio ou desconto].
+        * 🏢 **Fundamentos:** [Escreva julgando a qualidade da operação com base nas Estrelas F-Score e no ROIC].
+        * 🌡️ **Sentimento de Mercado:** [Defina em caixa alta OTIMISTA, NEUTRO ou PESSIMISTA, e escreva justificando com base nas notícias].
         
         ## 👑 Veredito Final
         **Ação Recomendada:** [COMPRAR, MANTER, AGUARDAR SUPORTE ou VENDER].
         
-        **Tese Final:** [Escreva o fechamento da análise, cruzando todos os dados em um parágrafo de alto impacto. Fale como um executivo de mercado fechando a recomendação para o comitê].
+        **Preço Sugerido para Compra:** [Com base no Suporte e no Valuation, cravar um Preço Teto exato ou uma Faixa Ideal para aportar].
+        
+        **Tese Final:** [Escreva o fechamento da análise, cruzando todos os dados em um parágrafo de alto impacto].
         """
         
         model = genai.GenerativeModel('gemini-2.5-flash')
