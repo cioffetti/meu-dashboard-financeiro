@@ -100,14 +100,20 @@ def gerar_relatorio_ia(ticker):
     st.info(f"Coletando notícias ao vivo e processando o cenário para **{ticker}**. Isso pode levar alguns segundos...")
     
     try:
-        # 1. CAPTURA DE NOTÍCIAS REAIS AO VIVO
+        # 1. CAPTURA DE NOTÍCIAS REAIS AO VIVO (COM BLINDAGEM DE ERROS)
         noticias_yf = yf.Ticker(ticker).news
         texto_noticias = ""
         if noticias_yf:
             for n in noticias_yf[:10]: # Pegamos as 10 mais recentes da API
-                dt_pub = datetime.fromtimestamp(n['providerPublishTime']).strftime('%d/%m/%Y')
+                # Blindagem: Tenta pegar o timestamp, se falhar ou não existir, usa um texto genérico
+                ts = n.get('providerPublishTime')
+                if ts:
+                    dt_pub = datetime.fromtimestamp(ts).strftime('%d/%m/%Y')
+                else:
+                    dt_pub = "Data Recente"
+                
                 fonte = n.get('publisher', 'Agência Financeira')
-                titulo = n.get('title', '')
+                titulo = n.get('title', 'Notícia de mercado')
                 texto_noticias += f"- Data: {dt_pub} | Fonte: {fonte} | Título: {titulo}\n"
         else:
             texto_noticias = "Sem notícias recentes reportadas na base global nas últimas semanas."
@@ -124,7 +130,7 @@ def gerar_relatorio_ia(ticker):
         {texto_noticias}
         
         Instruções adicionais:
-        - Busque na sua base o último balanço divulgado pela empresa (o mais próximo possível de {data_hoje}). Não use balanços de 2024 se houver dados de 2025 ou 2026.
+        - Busque na sua base o último balanço divulgado pela empresa (o mais próximo possível de {data_hoje}). Não use balanços antigos.
         
         A sua resposta DEVE seguir estritamente o formato abaixo em Markdown:
         
