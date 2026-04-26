@@ -29,6 +29,16 @@ def formatar_br(valor, casas):
     texto = f"{valor:,.{casas}f}"
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
+def obter_faixa(f_score):
+    if pd.isna(f_score): return "⚪ Branca"
+    score = int(f_score)
+    if score <= 1: return "⚪ Branca"
+    if score == 2: return "🟡 Amarela"
+    if score == 3: return "🟢 Verde"
+    if score == 4: return "🔵 Azul"
+    if score >= 5: return "⚫ Preta"
+    return "⚪ Branca"
+
 # --- MOTOR DE COTAÇÕES EM LOTE ---
 @st.cache_data(ttl=300)
 def buscar_dados_em_lote(lista_tickers, mercado="Macro"):
@@ -91,9 +101,9 @@ def abrir_historico_simples(ticker, nome):
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL HÍBRIDO ---
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL HÍBRIDO E RAG ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
-def gerar_relatorio_ia(ticker):
+def gerar_relatorio_ia(ticker, dados_fundos=None):
     if not GOOGLE_API_KEY:
         st.error("⚠️ Chave GOOGLE_API_KEY não encontrada. Configure no arquivo .env para ativar a Fase 4.")
         return
@@ -101,32 +111,33 @@ def gerar_relatorio_ia(ticker):
     st.info(f"Coletando até 30 notícias ao vivo e processando o cenário para **{ticker}**. Isso pode levar alguns segundos...")
     
     try:
+        is_usa = ".SA" not in ticker
         texto_noticias = ""
         noticias_validas = []
         
-        # 1. TENTATIVA PRIMÁRIA (YAHOO FINANCE) - Aumentado para 30
+        # 1. TENTATIVA PRIMÁRIA (YAHOO FINANCE)
         try:
             noticias_yf = yf.Ticker(ticker).news
             if noticias_yf:
                 for n in noticias_yf:
                     titulo = n.get('title')
                     if not titulo: continue
-                    
                     ts = n.get('providerPublishTime')
                     dt_pub = datetime.fromtimestamp(ts).strftime('%d/%m/%Y') if ts else "Recente"
                     fonte = n.get('publisher', 'Mercado')
-                    
                     noticias_validas.append(f"- Data: {dt_pub} | Fonte: {fonte} | Título: {titulo}\n")
         except Exception:
             pass
 
-        # Se achar pelo menos 5, usa o lote do Yahoo (até 30)
         if len(noticias_validas) > 5:
             texto_noticias = "".join(noticias_validas[:30])
         else:
-            # 2. TENTATIVA SECUNDÁRIA (GOOGLE NEWS RSS FALLBACK) - Aumentado para 30
+            # 2. TENTATIVA SECUNDÁRIA (GOOGLE NEWS RSS FALLBACK) - LENTE INSTITUCIONAL
             termo_busca = ticker.replace(".SA", "")
-            url_news = f"https://news.google.com/rss/search?q={termo_busca}+ação+mercado&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+            # Se for EUA, busca global. Se for BR, busca local.
+            params = "hl=en-US&gl=US&ceid=US:en" if is_usa else "hl=pt-BR&gl=BR&ceid=BR:pt-419"
+            url_news = f"https://news.google.com/rss/search?q={termo_busca}+stock+market&{params}" if is_usa else f"https://news.google.com/rss/search?q={termo_busca}+ação+mercado&{params}"
+            
             try:
                 resp = requests.get(url_news, timeout=10)
                 if resp.status_code == 200:
@@ -145,19 +156,27 @@ def gerar_relatorio_ia(ticker):
         if not texto_noticias.strip():
             texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
 
-        # 3. INJEÇÃO DE CONTEXTO E CHAMADA DA IA
+        # 3. CONTEXTO DO BALANÇO (RAG)
+        contexto_balanco = ""
+        if dados_fundos:
+            contexto_balanco = f"""
+            DADOS REAIS DO TERMINAL PARA BASEAR SUA ANÁLISE DO BALANÇO:
+            - ROIC Atual: {dados_fundos.get('ROIC_%', 'N/A')}%
+            - Margem Líquida: {dados_fundos.get('Margem_Liquida_%', 'N/A')}%
+            - Dívida/EBITDA (Aprox. por EV/EBIT): {dados_fundos.get('EV_EBIT', 'N/A')}
+            - Nota de Saúde do F-Score: {dados_fundos.get('F_Score', 'N/A')} de 5.
+            """
+
         data_hoje = datetime.now().strftime("%d/%m/%Y")
 
         prompt = f"""
-        Hoje é dia {data_hoje}. Atue como um analista financeiro sênior. 
+        Hoje é dia {data_hoje}. Atue como um analista financeiro institucional de Wall Street. 
         Faça uma análise qualitativa profunda e ATUALIZADA da empresa com ticker {ticker}.
         
-        Abaixo está um grande lote com as manchetes REAIS e mais recentes coletadas.
-        Utilize EXCLUSIVAMENTE estas manchetes para a seção de notícias:
-        {texto_noticias}
+        {contexto_balanco}
         
-        Instruções adicionais:
-        - Busque na sua base o último balanço divulgado pela empresa (o mais próximo possível de {data_hoje}).
+        Abaixo está um grande lote com as manchetes REAIS e mais recentes coletadas:
+        {texto_noticias}
         
         A sua resposta DEVE seguir estritamente o formato abaixo em Markdown:
         
@@ -167,28 +186,25 @@ def gerar_relatorio_ia(ticker):
         **Oportunidades (Opportunities):** [2 oportunidades]
         **Ameaças (Threats):** [2 ameaças]
         
-        ## 2. Raio-X do Balanço (Indique o Trimestre mais recente avaliado)
+        ## 2. Raio-X do Balanço (Análise Qualitativa)
+        Use os números reais passados no contexto para compor esta seção.
         * **✅ 3 Pontos Positivos:** [Descreva 3 destaques financeiros]
         * **⚠️ 3 Pontos de Atenção:** [Descreva 3 preocupações financeiras]
         
         ## 3. Termômetro de Notícias e Percepção de Mercado
-        A partir do volume de manchetes reais enviadas, SELECIONE EXATAMENTE as 5 mais positivas e as 5 mais negativas. Se houver poucas notícias, use o máximo que conseguir, mas o alvo é 5 e 5.
+        A partir do volume de manchetes reais enviadas, SELECIONE EXATAMENTE as 5 mais positivas e as 5 mais negativas (se houver poucas, use o máximo disponível).
         
-        REGRA DE ORDENAÇÃO: As notícias listadas (tanto na seção positiva quanto na negativa) DEVEM OBRIGATORIAMENTE ser apresentadas em ordem cronológica decrescente, ou seja, da data mais RECENTE para a data mais ANTIGA.
+        REGRA DE ORDENAÇÃO: As notícias listadas (tanto na seção positiva quanto na negativa) DEVEM OBRIGATORIAMENTE ser apresentadas em ordem cronológica decrescente (da data mais RECENTE para a data mais ANTIGA).
         
-        Para cada notícia, escreva um "Resumo do Analista" de no máximo 5 linhas, explicando o contexto e como o mercado percebe a informação.
+        Para cada notícia, escreva um "Resumo do Analista" em português de no máximo 5 linhas, explicando o contexto e como o mercado percebe a informação.
         
         **Notícias Positivas Recentes:**
         * **[Data da notícia] - [Fonte] - [Manchete]**
-        > **Resumo do Analista:** [Sua explicação analítica de até 5 linhas].
-        
-        (Liste até 5 positivas ordenadas da mais recente para a mais antiga)
+        > **Resumo do Analista:** [Sua explicação analítica].
         
         **Notícias Negativas Recentes:**
         * **[Data da notícia] - [Fonte] - [Manchete]**
-        > **Resumo do Analista:** [Sua explicação analítica de até 5 linhas].
-        
-        (Liste até 5 negativas ordenadas da mais recente para a mais antiga)
+        > **Resumo do Analista:** [Sua explicação analítica].
         
         Seja direto e profissional.
         """
@@ -336,25 +352,13 @@ with aba_macro: renderizar_grid_cards(macro_dict, "Macro")
 with aba_br: renderizar_grid_cards(acoes_br_dict, "BR")
 with aba_usa: renderizar_grid_cards(acoes_usa_dict, "USA")
 
-# --- ABA DE ANÁLISES (TÉCNICA + IA) ---
-with aba_analises:
-    st.header("🎯 Central de Inteligência: Gráfica e Qualitativa")
-    st.write("Selecione um ativo para realizar análises profundas sob demanda.")
-    
-    col1, col2, col3 = st.columns([2, 1, 1])
-    todos_ativos = [t for t in acoes_br_list + acoes_usa_list if "11.SA" not in t]
-    ativo_selecionado = col1.selectbox("Escolha a Ação:", sorted(todos_ativos))
-    
-    if col2.button("📈 Abrir Raio-X Técnico (Gráficos)", use_container_width=True):
-        abrir_raio_x(ativo_selecionado)
-        
-    if col3.button("🧠 Gerar Parecer da IA (SWOT & Notícias)", use_container_width=True):
-        gerar_relatorio_ia(ativo_selecionado)
-
 # --- 4. PREPARAÇÃO DOS DADOS BASE ---
 arquivo_csv = "base_dados.csv"
+dados_base_carregados = False
+
 if os.path.exists(arquivo_csv):
     df = pd.read_csv(arquivo_csv, sep=";")
+    dados_base_carregados = True
     
     df['Dividendo_Pago'] = df['Preco'] * (df['Div_Yield_%'] / 100)
     df['Teto_Bazin'] = df['Dividendo_Pago'] / 0.06
@@ -369,14 +373,16 @@ if os.path.exists(arquivo_csv):
     df.loc[df['Liquidez_Corrente'] > 1.2, 'F_Score'] += 1
     df.loc[df['Crescimento_5a_%'] > 0, 'F_Score'] += 1
     df.loc[df['LPA'] > 0, 'F_Score'] += 1
-    df['Saude_Visual'] = df['F_Score'].apply(lambda x: "⭐" * int(x))
+    
+    # NOVA LÓGICA DE FAIXAS SUBSTITUINDO AS ESTRELAS
+    df['Saude_Visual'] = df['F_Score'].apply(obter_faixa)
 
     mask_magica = (df['EV_EBIT'] > 0) & (df['ROIC_%'] > 0)
     df.loc[mask_magica, 'Rank_ROIC'] = df.loc[mask_magica, 'ROIC_%'].rank(ascending=False)
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- ABA DE FUNDAMENTOS ---
+    # --- ABA DE FUNDAMENTOS COMPLETAMENTE RESTAURADA ---
     with aba_fundamentos:
         st.header("Radar de Valor e Qualidade (Fase 2)")
         
@@ -429,7 +435,7 @@ if os.path.exists(arquivo_csv):
         
         st.dataframe(df_fundo[colunas_exibicao], use_container_width=True, hide_index=True)
 
-    # --- ABA SIMULADOR ---
+    # --- ABA SIMULADOR COMPLETAMENTE RESTAURADA ---
     with aba_simulador:
         st.header("🎛️ Laboratório de Estratégia Ponderada")
         
@@ -475,4 +481,28 @@ if os.path.exists(arquivo_csv):
 
         st.dataframe(df_sim[['Rank', 'Ticker', 'Preco_Atual', 'Nota_Final', 'Veredito', 'Saude_Visual']], use_container_width=True, hide_index=True)
 
-else: st.warning("⚠️ Banco de dados não encontrado. Execute 'robo_balancos.py' para gerar.")
+else: 
+    with aba_fundamentos: st.warning("⚠️ Banco de dados não encontrado. Execute 'robo_balancos.py'.")
+    with aba_simulador: st.warning("⚠️ Banco de dados não encontrado. Execute 'robo_balancos.py'.")
+
+# --- ABA DE ANÁLISES (TÉCNICA + IA) ---
+with aba_analises:
+    st.header("🎯 Central de Inteligência: Gráfica e Qualitativa")
+    st.write("Selecione um ativo para realizar análises profundas sob demanda.")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    todos_ativos = [t for t in acoes_br_list + acoes_usa_list if "11.SA" not in t]
+    ativo_selecionado = col1.selectbox("Escolha a Ação:", sorted(todos_ativos))
+    
+    if col2.button("📈 Abrir Raio-X Técnico (Gráficos)", use_container_width=True):
+        abrir_raio_x(ativo_selecionado)
+        
+    if col3.button("🧠 Gerar Parecer da IA (SWOT & Notícias)", use_container_width=True):
+        dados_envio = None
+        if dados_base_carregados:
+            ticker_limpo = ativo_selecionado.replace(".SA", "")
+            linha = df[df['Ticker'].str.contains(ticker_limpo, na=False)]
+            if not linha.empty:
+                dados_envio = linha.iloc[0].to_dict()
+        
+        gerar_relatorio_ia(ativo_selecionado, dados_envio)
