@@ -91,14 +91,14 @@ def abrir_historico_simples(ticker, nome):
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (O QUADRANTE PERFEITO) ---
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (O VEREDITO INTEGRAL) ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker, dados_fundos=None):
     if not GOOGLE_API_KEY:
         st.error("⚠️ Chave GOOGLE_API_KEY não encontrada. Configure no arquivo .env.")
         return
         
-    st.info(f"Coletando notícias reais e cruzando 4 pilares de análise para **{ticker}**...")
+    st.info(f"Coletando notícias reais e cruzando Pilares de Análise para **{ticker}**...")
     
     try:
         # 1. RAG TÉCNICO (Cálculo do Suporte para Injeção)
@@ -150,20 +150,26 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         if not texto_noticias.strip():
             texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
 
-        # 3. EMPACOTAMENTO GERAL PARA O PROMPT
+        # 3. EMPACOTAMENTO GERAL PARA O PROMPT (Sem travas de decimais para evitar crash)
         contexto_dados = f"""
         **DADOS TÉCNICOS (PREÇO ATUAL E GRÁFICO):**
         - Preço Atual da Ação: {preco_atual_ia}
         - Suporte Gráfico (Preço Alvo Técnico): {suporte_ia}
         """
         if dados_fundos:
+            v_bazin = dados_fundos.get('Teto_Bazin', 'N/A')
+            v_graham = dados_fundos.get('Justo_Graham', 'N/A')
+            v_dcf = dados_fundos.get('Justo_DCF', 'N/A')
+            v_fscore = dados_fundos.get('F_Score', 'N/A')
+            v_roic = dados_fundos.get('ROIC_%', 'N/A')
+            
             contexto_dados += f"""
         **VALUATION E FUNDAMENTOS REAIS DO TERMINAL:**
-        - Preço Justo Bazin (Teto de Renda): {moeda_ia} {dados_fundos.get('Teto_Bazin', 0):.2f}
-        - Preço Justo Graham (Patrimônio): {moeda_ia} {dados_fundos.get('Justo_Graham', 0):.2f}
-        - Preço Justo DCF (Fluxo de Caixa): {moeda_ia} {dados_fundos.get('Justo_DCF', 0):.2f}
-        - Nota de Qualidade da Empresa (F-Score): {dados_fundos.get('F_Score', 'N/A')} de 5 estrelas.
-        - ROIC Atual: {dados_fundos.get('ROIC_%', 'N/A')}%
+        - Preço Justo Bazin (Teto de Renda): {v_bazin}
+        - Preço Justo Graham (Patrimônio): {v_graham}
+        - Preço Justo DCF (Fluxo de Caixa): {v_dcf}
+        - Nota de Qualidade da Empresa (F-Score): {v_fscore} de 5 estrelas.
+        - ROIC Atual: {v_roic}%
             """
 
         data_hoje = datetime.now().strftime("%d/%m/%Y")
@@ -184,7 +190,12 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         **Forças:** [2 pontos fortes] | **Fraquezas:** [2 pontos fracos]
         **Oportunidades:** [2 oportunidades] | **Ameaças:** [2 ameaças]
         
-        ## 2. Termômetro de Notícias
+        ## 2. Raio-X do Balanço
+        Use os números reais passados no contexto para compor esta seção.
+        * **✅ 3 Pontos Positivos:** [Descreva 3 destaques financeiros]
+        * **⚠️ 3 Pontos de Atenção (Negativos):** [Descreva 3 preocupações financeiras]
+        
+        ## 3. Termômetro de Notícias
         Selecione as 5 manchetes reais mais positivas e as 5 mais negativas do lote enviado.
         REGRA INEGOCIÁVEL: Ordene-as cronologicamente da data mais RECENTE para a mais ANTIGA.
         
@@ -195,12 +206,12 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         * **[Data] - [Fonte] - [Manchete]** -> *Resumo do Analista:* [Explicação de até 3 linhas]
         
         ---
-        ## 3. O Quadrante de Decisão
+        ## 4. O Quadrante de Decisão
         Exponha os 4 cenários baseados nos dados fornecidos:
         
         * 📈 **Análise Gráfica:** Preço de Compra Técnico: {suporte_ia}. (Explique se o {preco_atual_ia} atual está muito esticado ou se oferece desconto técnico).
-        * 💰 **Valuation:** Preço Justo Médio: [Faça uma média ou consolide os valores de Bazin, Graham e DCF]. (Conclua numericamente se a ação negocia com margem de segurança ou prêmio).
-        * 🏢 **Fundamentos:** Qualidade da Operação: [Cite as Estrelas F-Score e o ROIC injetados]. (Justifique se a empresa é robusta o suficiente para buy and hold).
+        * 💰 **Valuation:** Preço Justo Médio: [Consolide os valores de Bazin, Graham e DCF injetados]. (Conclua se a ação negocia com margem de segurança ou prêmio).
+        * 🏢 **Fundamentos:** Qualidade da Operação: [Cite as Estrelas F-Score e o ROIC injetados]. (Justifique se a empresa é robusta).
         * 🌡️ **Sentimento:** Direção do Fluxo: [OTIMISTA, NEUTRO ou PESSIMISTA]. (Avalie a narrativa da mídia).
         
         ## 👑 Veredito Final
