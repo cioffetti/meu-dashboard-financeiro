@@ -9,6 +9,7 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
+import xml.etree.ElementTree as ET
 
 # --- CONFIGURAÇÃO DE SEGURANÇA HÍBRIDA ---
 load_dotenv()
@@ -90,47 +91,73 @@ def abrir_historico_simples(ticker, nome):
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL E RAG ---
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL HÍBRIDO ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker):
     if not GOOGLE_API_KEY:
         st.error("⚠️ Chave GOOGLE_API_KEY não encontrada. Configure no arquivo .env para ativar a Fase 4.")
         return
         
-    st.info(f"Coletando notícias ao vivo e processando o cenário para **{ticker}**. Isso pode levar alguns segundos...")
+    st.info(f"Coletando notícias reais ao vivo e processando o cenário para **{ticker}**. Isso pode levar alguns segundos...")
     
     try:
-        # 1. CAPTURA DE NOTÍCIAS REAIS AO VIVO (COM BLINDAGEM DE ERROS)
-        noticias_yf = yf.Ticker(ticker).news
         texto_noticias = ""
-        if noticias_yf:
-            for n in noticias_yf[:10]: # Pegamos as 10 mais recentes da API
-                # Blindagem: Tenta pegar o timestamp, se falhar ou não existir, usa um texto genérico
-                ts = n.get('providerPublishTime')
-                if ts:
-                    dt_pub = datetime.fromtimestamp(ts).strftime('%d/%m/%Y')
-                else:
-                    dt_pub = "Data Recente"
-                
-                fonte = n.get('publisher', 'Agência Financeira')
-                titulo = n.get('title', 'Notícia de mercado')
-                texto_noticias += f"- Data: {dt_pub} | Fonte: {fonte} | Título: {titulo}\n"
-        else:
-            texto_noticias = "Sem notícias recentes reportadas na base global nas últimas semanas."
+        noticias_validas = []
+        
+        # 1. TENTATIVA PRIMÁRIA (YAHOO FINANCE)
+        try:
+            noticias_yf = yf.Ticker(ticker).news
+            if noticias_yf:
+                for n in noticias_yf:
+                    titulo = n.get('title')
+                    if not titulo: continue # Ignora lixo sem título
+                    
+                    ts = n.get('providerPublishTime')
+                    dt_pub = datetime.fromtimestamp(ts).strftime('%d/%m/%Y') if ts else "Recente"
+                    fonte = n.get('publisher', 'Mercado')
+                    
+                    noticias_validas.append(f"- Data: {dt_pub} | Fonte: {fonte} | Título: {titulo}\n")
+        except Exception:
+            pass
 
-        # 2. INJEÇÃO DE CONTEXTO TEMPORAL
+        # Avalia se o Yahoo Finance trouxe dados suficientes
+        if len(noticias_validas) > 0:
+            texto_noticias = "".join(noticias_validas[:10])
+        else:
+            # 2. TENTATIVA SECUNDÁRIA (GOOGLE NEWS RSS FALLBACK)
+            termo_busca = ticker.replace(".SA", "")
+            url_news = f"https://news.google.com/rss/search?q={termo_busca}+ação+mercado&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+            try:
+                resp = requests.get(url_news, timeout=5)
+                if resp.status_code == 200:
+                    root = ET.fromstring(resp.text)
+                    items = root.findall('.//item')
+                    for item in items[:10]:
+                        t = item.find('title').text if item.find('title') is not None else ""
+                        d = item.find('pubDate').text if item.find('pubDate') is not None else ""
+                        f = item.find('source').text if item.find('source') is not None else "Portal Financeiro"
+                        d_limpa = d[5:16] if len(d) > 16 else "Recente"
+                        if t: 
+                            texto_noticias += f"- Data: {d_limpa} | Fonte: {f} | Título: {t}\n"
+            except Exception:
+                pass
+                
+        if not texto_noticias.strip():
+            texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
+
+        # 3. INJEÇÃO DE CONTEXTO E CHAMADA DA IA
         data_hoje = datetime.now().strftime("%d/%m/%Y")
 
         prompt = f"""
         Hoje é dia {data_hoje}. Atue como um analista financeiro sênior. 
         Faça uma análise qualitativa profunda e ATUALIZADA da empresa com ticker {ticker}.
         
-        Para evitar desatualizações, eu busquei as manchetes REAIS e mais recentes do mercado neste exato momento.
+        Para evitar desatualizações, eu busquei as manchetes REAIS e mais recentes publicadas na mídia neste exato momento.
         Utilize EXCLUSIVAMENTE estas manchetes para a seção de notícias:
         {texto_noticias}
         
         Instruções adicionais:
-        - Busque na sua base o último balanço divulgado pela empresa (o mais próximo possível de {data_hoje}). Não use balanços antigos.
+        - Busque na sua base o último balanço divulgado pela empresa (o mais próximo possível de {data_hoje}).
         
         A sua resposta DEVE seguir estritamente o formato abaixo em Markdown:
         
