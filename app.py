@@ -24,6 +24,14 @@ if GOOGLE_API_KEY:
 st.set_page_config(page_title="Terminal Financeiro Pro", layout="wide")
 st.title("🏛️ Terminal de Inteligência Financeira")
 
+st.error("🔍 MODO DIAGNÓSTICO: Modelos disponíveis nesta chave de API:")
+try:
+    for m in genai.list_models():
+        if 'generateContent' in m.supported_generation_methods:
+            st.warning(m.name)
+except Exception as e:
+    st.write("Erro ao listar modelos:", e)
+
 def formatar_br(valor, casas):
     if pd.isna(valor) or valor is None: return "N/A"
     texto = f"{valor:,.{casas}f}"
