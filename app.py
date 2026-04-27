@@ -247,7 +247,30 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         **Tese Final:** [Escreva o fechamento da análise cruzando o preço técnico, a precificação do DCF, os fundamentos e a narrativa da mídia].
         """
         
-        model = genai.GenerativeModel('gemini-pro')
+        # --- AUTO-DESCOBERTA DE MODELO À PROVA DE FALHAS ---
+        modelos_disponiveis = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        modelo_escolhido = None
+        
+        # 1. Tenta achar a versão 1.5 Flash (O tanque de guerra atual)
+        for m in modelos_disponiveis:
+            if '1.5-flash' in m:
+                modelo_escolhido = m
+                break
+                
+        # 2. Se não achar, pega QUALQUER modelo Gemini que a sua chave permita usar
+        if not modelo_escolhido:
+            for m in modelos_disponiveis:
+                if 'gemini' in m and 'vision' not in m:
+                    modelo_escolhido = m
+                    break
+                    
+        if not modelo_escolhido:
+            st.error("Nenhum modelo Gemini compatível encontrado na sua chave de API.")
+            return
+
+        model = genai.GenerativeModel(modelo_escolhido)
+        # --------------------------------------------------
         response = model.generate_content(prompt)
         st.markdown(response.text)
     except Exception as e:
