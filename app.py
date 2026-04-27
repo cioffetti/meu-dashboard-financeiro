@@ -247,7 +247,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         **Tese Final:** [Escreva o fechamento da análise cruzando o preço técnico, a precificação do DCF, os fundamentos e a narrativa da mídia].
         """
         
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt)
         st.markdown(response.text)
     except Exception as e:
