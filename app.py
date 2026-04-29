@@ -69,20 +69,21 @@ def buscar_taxas_macro():
 taxa_selic_live, taxa_us10y_live = buscar_taxas_macro()
 
 # --- NOVO: BUSCADOR DE CONSENSO DE WALL STREET (YAHOO FINANCE) ---
-@st.cache_data(ttl=43200, show_spinner=False) # Cache de 12 horas para não pesar a API
+@st.cache_data(ttl=43200, show_spinner=False)
 def buscar_consenso_analistas(lista_tickers):
     alvos = {}
     for ticker in lista_tickers:
         try:
             info = yf.Ticker(ticker).info
             alvos[ticker] = {
-                # O Yahoo retorna o Consenso exato do mercado global
                 'Val_Pessimista': info.get('targetLowPrice', 0) or 0,
                 'Val_Base': info.get('targetMeanPrice', 0) or 0,
-                'Val_Otimista': info.get('targetHighPrice', 0) or 0
+                'Val_Otimista': info.get('targetHighPrice', 0) or 0,
+                'Num_Analistas': info.get('numberOfAnalystOpinions', 0) or 0,
+                'Recomendacao': str(info.get('recommendationKey', 'N/A')).replace('_', ' ').title()
             }
         except Exception:
-            alvos[ticker] = {'Val_Pessimista': 0, 'Val_Base': 0, 'Val_Otimista': 0}
+            alvos[ticker] = {'Val_Pessimista': 0, 'Val_Base': 0, 'Val_Otimista': 0, 'Num_Analistas': 0, 'Recomendacao': 'N/A'}
     return alvos
 
 # --- JANELA DE HISTÓRICO SIMPLES (5 ANOS) ---
@@ -176,12 +177,16 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
             v_otimista = dados_fundos.get('Val_Otimista', 0)
             v_fscore = dados_fundos.get('F_Score', 'N/A')
             v_roic = dados_fundos.get('ROIC_%', 'N/A')
+            n_analistas = dados_fundos.get('Num_Analistas', 0)
+            recomendacao = dados_fundos.get('Recomendacao', 'N/A')
             
             contexto_dados += f"""
-        **CONSENSO DE WALL STREET (PREÇO ALVO DOS ANALISTAS):**
-        - Cenário Pessimista (Analista mais rigoroso): {moeda_ia} {v_pessimista if isinstance(v_pessimista, str) else f"{v_pessimista:.2f}"}
-        - Cenário Base (Média Global de Mercado): {moeda_ia} {v_base if isinstance(v_base, str) else f"{v_base:.2f}"}
-        - Cenário Otimista (Analista mais agressivo): {moeda_ia} {v_otimista if isinstance(v_otimista, str) else f"{v_otimista:.2f}"}
+        **CONSENSO DE MERCADO (WALL STREET / FARIA LIMA):**
+        - Alvo Pessimista (Analista mais rigoroso): {moeda_ia} {v_pessimista if isinstance(v_pessimista, str) else f"{v_pessimista:.2f}"}
+        - Alvo Base (Média de Mercado): {moeda_ia} {v_base if isinstance(v_base, str) else f"{v_base:.2f}"}
+        - Alvo Otimista (Analista mais agressivo): {moeda_ia} {v_otimista if isinstance(v_otimista, str) else f"{v_otimista:.2f}"}
+        - Grau de Cobertura: {n_analistas} analistas institucionais acompanham este ativo.
+        - Recomendação Média do Consenso: {recomendacao}
         
         **FUNDAMENTOS OPERACIONAIS:**
         - Nota de Qualidade da Empresa (F-Score): {v_fscore} de 5 estrelas.
@@ -194,7 +199,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         Hoje é dia {data_hoje}. Atue como o Analista Chefe do comitê de investimentos. 
         Analise o ativo {ticker}.
         
-        Abaixo estão os Alvos de Consenso de Wall Street e as notícias REAIS coletadas:
+        Abaixo estão os Alvos de Consenso de Mercado e as notícias REAIS coletadas:
         {contexto_dados}
         
         MANCHETES:
@@ -204,6 +209,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$'.
         2. Na Matriz SWOT, você DEVE fornecer EXATAMENTE 3 tópicos para cada categoria.
         3. Nas Notícias, pule uma linha entre a Manchete e o 'Resumo do Analista'.
+        4. Cuidado com falsos otimismos se o "Grau de Cobertura" for muito baixo (poucos analistas).
         
         A sua resposta DEVE seguir estritamente a estrutura abaixo:
         
@@ -249,14 +255,14 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         ---
         ## 4. O Quadrante de Decisão
         * 📈 **Análise Gráfica (Timing):** [Aprove ou rejeite a entrada com base no Suporte Técnico fornecido em relação ao preço atual].
-        * 💰 **Valuation (Consenso de Analistas):** [Avalie o preço atual frente ao Consenso de Mercado fornecido (Pessimista, Base, Otimista). O ativo está sendo ignorado pelo mercado ou já precifica perfeição?].
+        * 💰 **Valuation (Consenso de Analistas):** [Avalie o preço atual frente ao Consenso de Mercado e a Recomendação Média. O mercado está precificando perfeitamente a ação ou há margem baseada na média institucional?].
         * 🏢 **Fundamentos:** [Escreva julgando a qualidade da operação com base nas Estrelas F-Score e no ROIC].
         * 🌡️ **Sentimento de Mercado:** [Defina em caixa alta OTIMISTA, NEUTRO ou PESSIMISTA, e escreva justificando com base nas notícias].
         
         ## 👑 Veredito Final
         **Ação Recomendada:** [COMPRAR, MANTER, AGUARDAR SUPORTE ou VENDER].
         
-        **Preço Sugerido para Compra:** [Com base no Suporte Gráfico e no Preço Alvo Base de Wall Street, defina o preço teto exato de entrada].
+        **Preço Sugerido para Compra:** [Com base no Suporte Gráfico e no Preço Alvo Base do Consenso, defina o preço teto exato de entrada].
         
         **Tese Final:** [Escreva o fechamento da análise cruzando o preço técnico, o consenso de Wall Street, os fundamentos e a narrativa da mídia].
         """
@@ -347,8 +353,8 @@ acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA",
 acoes_usa_dict = {ticker: (ticker, 2) for ticker in acoes_usa_list}
 
 # --- CRIAÇÃO DAS ABAS ---
-aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_analises, aba_simulador = st.tabs([
-    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Consenso Wall St", "🎯 Raio-X & IA", "🎛️ Simulador"
+aba_macro, aba_br, aba_usa, aba_fundamentos, aba_consenso, aba_analises, aba_simulador = st.tabs([
+    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Consenso Mercado", "🎯 Raio-X & IA", "🎛️ Simulador"
 ])
 
 def renderizar_grid_cards(dicionario_ativos, mercado):
@@ -392,7 +398,7 @@ if os.path.exists(arquivo_csv):
     df = pd.read_csv(arquivo_csv, sep=";")
     dados_base_carregados = True
     
-    # Gurus Históricos (Mantidos para referência na aba de fundamentos)
+    # Cálculos Clássicos (Fase 1 e 2 - Mantidos)
     df['Dividendo_Pago'] = df['Preco'] * (df['Div_Yield_%'] / 100)
     df['Teto_Bazin'] = df['Dividendo_Pago'] / 0.06
     df['Margem_Bazin_%'] = np.where(df['Teto_Bazin'] > 0, ((df['Teto_Bazin'] - df['Preco']) / df['Preco']) * 100, 0)
@@ -414,28 +420,27 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- A MÁGICA: SINCRONIZANDO O CONSENSO REAL DE WALL STREET ---
-    with st.spinner("Sincronizando Preços-Alvo do Yahoo Finance..."):
-        # Pega a lista única de Tickers do CSV
+    # --- A MÁGICA: SINCRONIZANDO O CONSENSO REAL DE WALL STREET E FARIA LIMA ---
+    with st.spinner("Sincronizando Consenso de Analistas (Yahoo Finance)..."):
         tickers_unicos = df['Ticker'].unique().tolist()
         alvos_mercado = buscar_consenso_analistas(tickers_unicos)
         
-        # Mapeando os dados da API para o Dataframe
         df['Val_Pessimista'] = df['Ticker'].map(lambda x: alvos_mercado.get(x, {}).get('Val_Pessimista', 0))
         df['Val_Base'] = df['Ticker'].map(lambda x: alvos_mercado.get(x, {}).get('Val_Base', 0))
         df['Val_Otimista'] = df['Ticker'].map(lambda x: alvos_mercado.get(x, {}).get('Val_Otimista', 0))
+        df['Num_Analistas'] = df['Ticker'].map(lambda x: alvos_mercado.get(x, {}).get('Num_Analistas', 0))
+        df['Recomendacao'] = df['Ticker'].map(lambda x: alvos_mercado.get(x, {}).get('Recomendacao', 'N/A'))
     
-    # Criamos a variável de mercado para o Simulador Ponderado
-    df['Justo_Mercado'] = df['Val_Base']
+    df['Justo_Mercado'] = df['Val_Base'] # Para o Simulador não quebrar
 
-    # --- ABA DE CONSENSO (VALUATION PRO) ---
-    with aba_valuation:
-        st.header("🎯 Consenso de Analistas (Wall Street / Faria Lima)")
-        st.write("Agregação oficial de Preços-Alvo reportados por bancos de investimento e casas de análise (Fonte: Yahoo Finance API).")
+    # --- ABA DE CONSENSO DE MERCADO ---
+    with aba_consenso:
+        st.header("🎯 Consenso Oficial de Mercado (Preço-Alvo)")
+        st.write("Agregação das projeções feitas pelas grandes casas de análise e bancos de investimento (Fonte: Yahoo Finance).")
         
         df_cenarios = df.copy()
-        df_cenarios = df_cenarios[['Ticker', 'Preco', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Origem']]
-        df_cenarios = df_cenarios[df_cenarios['Val_Base'] > 0] # Esconde quem não tem cobertura de analista
+        df_cenarios = df_cenarios[['Ticker', 'Preco', 'Num_Analistas', 'Recomendacao', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Origem']]
+        df_cenarios = df_cenarios[df_cenarios['Val_Base'] > 0] # Mostra apenas quem tem cobertura de mercado
         
         df_cenarios['Margem_Base'] = ((df_cenarios['Val_Base'] - df_cenarios['Preco']) / df_cenarios['Preco']) * 100
         df_cenarios = df_cenarios.sort_values(by='Margem_Base', ascending=False)
@@ -445,16 +450,17 @@ if os.path.exists(arquivo_csv):
             return f"{simb} {linha[col]:.2f}"
             
         df_cenarios['Preco Atual'] = df_cenarios.apply(lambda r: formata_val(r, 'Preco'), axis=1)
-        df_cenarios['🔴 Alvo Pessimista (Analista mais rigoroso)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Pessimista'), axis=1)
-        df_cenarios['🟡 Alvo Base (Média de Mercado)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Base'), axis=1)
-        df_cenarios['🟢 Alvo Otimista (Analista mais agressivo)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Otimista'), axis=1)
+        df_cenarios['🔴 Alvo Pessimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Pessimista'), axis=1)
+        df_cenarios['🟡 Alvo Base (Média)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Base'), axis=1)
+        df_cenarios['🟢 Alvo Otimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Otimista'), axis=1)
         
+        # Colunas com a Recomendação e Total de Analistas ao lado dos Preços
         st.dataframe(
-            df_cenarios[['Ticker', 'Preco Atual', '🔴 Alvo Pessimista (Analista mais rigoroso)', '🟡 Alvo Base (Média de Mercado)', '🟢 Alvo Otimista (Analista mais agressivo)']], 
+            df_cenarios[['Ticker', 'Preco Atual', '🔴 Alvo Pessimista', '🟡 Alvo Base (Média)', '🟢 Alvo Otimista', 'Num_Analistas', 'Recomendacao']], 
             use_container_width=True, hide_index=True
         )
 
-    # --- ABA DE FUNDAMENTOS ---
+    # --- ABA DE FUNDAMENTOS (OS GURUS) ---
     with aba_fundamentos:
         st.header("Radar de Valor e Qualidade (Gurus Clássicos)")
         df_fundo = df.copy()
@@ -477,7 +483,7 @@ if os.path.exists(arquivo_csv):
             
         st.dataframe(df_fundo[['Ticker', 'Preco', 'Saude_Visual', 'ROIC_%', 'Teto_Bazin', 'Justo_Graham']], use_container_width=True, hide_index=True)
 
-    # --- ABA SIMULADOR ---
+    # --- ABA SIMULADOR PONDERADO ---
     with aba_simulador:
         st.header("🎛️ Laboratório de Estratégia Ponderada")
         
@@ -487,7 +493,7 @@ if os.path.exists(arquivo_csv):
             w_bazin = c2.slider("Renda (Bazin)", 0, 100, 20)
             w_magic = c3.slider("Qualidade (Magic)", 0, 100, 20)
             w_fscore = c4.slider("Saúde (F-Score)", 0, 100, 20)
-            w_dcf = c5.slider("Consenso (Wall Street)", 0, 100, 20)
+            w_dcf = c5.slider("Consenso de Mercado", 0, 100, 20)
 
         df_sim = df.copy()
         df_sim['Margem_Mercado_%'] = np.where(df_sim['Val_Base'] > 0, ((df_sim['Val_Base'] - df_sim['Preco']) / df_sim['Preco']) * 100, 0)
@@ -517,7 +523,7 @@ if os.path.exists(arquivo_csv):
         st.dataframe(df_sim[['Rank', 'Ticker', 'Preco_Atual', 'Nota_Final', 'Veredito', 'Saude_Visual']], use_container_width=True, hide_index=True)
 
 else: 
-    with aba_valuation: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
+    with aba_consenso: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
     with aba_fundamentos: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
     with aba_simulador: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
 
