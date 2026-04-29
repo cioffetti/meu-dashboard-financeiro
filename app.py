@@ -101,7 +101,6 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
     st.info(f"Coletando notícias reais e cruzando Pilares Institucionais para **{ticker}**...")
     
     try:
-        # RAG TÉCNICO
         preco_atual_ia = "N/A"
         suporte_ia = "N/A"
         moeda_ia = "R$" if ".SA" in ticker else "US$"
@@ -114,7 +113,6 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
                 preco_atual_ia = f"{moeda_ia} {df_tec_ia['Close'].iloc[-1]:.2f}"
         except Exception: pass
 
-        # CAPTURA DE NOTÍCIAS HÍBRIDA
         is_usa = ".SA" not in ticker
         texto_noticias = ""
         noticias_validas = []
@@ -150,7 +148,6 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         if not texto_noticias.strip():
             texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
 
-        # EMPACOTAMENTO PARA O PROMPT
         contexto_dados = f"""
         **DADOS TÉCNICOS (PREÇO ATUAL E GRÁFICO):**
         - Preço Atual da Ação: {preco_atual_ia}
@@ -247,7 +244,6 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         **Tese Final:** [Escreva o fechamento da análise cruzando o preço técnico, a precificação do DCF, os fundamentos e a narrativa da mídia].
         """
         
-        # Chamando a versão Lite oficial que resolve o problema das cotas
         model = genai.GenerativeModel('gemini-2.5-flash-lite')
         response = model.generate_content(prompt)
         st.markdown(response.text)
@@ -403,51 +399,50 @@ if os.path.exists(arquivo_csv):
     # --- MATEMÁTICA FARIA LIMA: DCF DE 2 ESTÁGIOS COM SANITY CHECK ---
     df['Taxa_Apli'] = np.where(df['Origem'].str.contains("BRAPI|Fundamentus"), taxa_selic_live, taxa_us10y_live)
     
-    # Ke (Custo de Capital) com Beta Neutro de 1.0 e prêmio de risco de 5.5%
     premio_risco = 0.055
     df['Ke'] = (df['Taxa_Apli'] / 100) + (1.0 * premio_risco)
     
-    # Crescimento do Estágio 1 (Limitado a 10% no Base e 15% no Otimista para evitar alucinações)
     df['g_base'] = df['Crescimento_5a_%'].fillna(0).clip(lower=0, upper=10) / 100
     df['g_otimista'] = df['Crescimento_5a_%'].fillna(0).clip(lower=0, upper=15) / 100
 
     def calcular_dcf_realista(lpa, preco_atual, ke_ajustado, g_curto_prazo, g_perpetuidade):
         if lpa <= 0 or pd.isna(lpa): return 0
         
-        # Estágio 1: Descontando os próximos 5 anos
+        # Estágio 1
         pv_estagio1 = 0
         lucro_temp = lpa
         for i in range(1, 6):
             lucro_temp *= (1 + g_curto_prazo)
             pv_estagio1 += lucro_temp / ((1 + ke_ajustado) ** i)
             
-        # Estágio 2: Perpetuidade (Modelo de Gordon)
+        # Estágio 2
         if ke_ajustado <= g_perpetuidade: 
-            return 0 # Impede divisão por zero ou valor infinito
+            return 0 
             
         valor_terminal = (lucro_temp * (1 + g_perpetuidade)) / (ke_ajustado - g_perpetuidade)
         pv_terminal = valor_terminal / ((1 + ke_ajustado) ** 5)
         
         valor_intrinseco = pv_estagio1 + pv_terminal
         
-        # O Filtro de Sanidade (Sanity Check): Se o valor passar de 3x o preço da tela, o mercado
-        # embute riscos que a matemática não viu. Suavizamos a discrepância.
-        if preco_atual > 0 and valor_intrinseco > preco_atual * 3:
-            valor_intrinseco = (preco_atual * 1.5) + (valor_intrinseco * 0.1)
+        # NOVO FILTRO (Atenuador Proporcional de Ceticismo)
+        # Em vez de um teto rígido que quebra a ordem, atenuamos os excessos mantendo a proporção.
+        if preco_atual > 0 and valor_intrinseco > preco_atual * 1.5:
+            teto_livre = preco_atual * 1.5
+            excesso = valor_intrinseco - teto_livre
+            valor_intrinseco = teto_livre + (excesso * 0.15)
             
         return valor_intrinseco
 
-    # Aplicando os 3 Cenários
     df['Val_Base'] = df.apply(lambda r: calcular_dcf_realista(r['LPA'], r['Preco'], r['Ke'], r['g_base'], 0.03), axis=1)
     df['Val_Pessimista'] = df.apply(lambda r: calcular_dcf_realista(r['LPA'], r['Preco'], r['Ke'] + 0.02, 0.0, 0.01), axis=1)
     df['Val_Otimista'] = df.apply(lambda r: calcular_dcf_realista(r['LPA'], r['Preco'], max(r['Ke'] - 0.01, 0.07), r['g_otimista'], 0.035), axis=1)
     
-    df['Justo_DCF'] = df['Val_Base'] # Retrocompatibilidade com as outras abas
+    df['Justo_DCF'] = df['Val_Base'] 
 
     # --- ABA DE VALUATION PRO ---
     with aba_valuation:
         st.header("🧮 Valuation de Mercado (DCF Institucional)")
-        st.write("Cálculo de Fluxo de Caixa Descontado em dois estágios com Limitador de Discrepância (Sanity Check).")
+        st.write("Cálculo de Fluxo de Caixa Descontado em dois estágios com Atenuador Proporcional de Discrepância.")
         
         df_cenarios = df.copy()
         df_cenarios = df_cenarios[['Ticker', 'Preco', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Origem']]
