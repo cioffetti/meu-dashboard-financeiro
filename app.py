@@ -68,24 +68,6 @@ def buscar_taxas_macro():
 
 taxa_selic_live, taxa_us10y_live = buscar_taxas_macro()
 
-# --- NOVO: BUSCADOR DE CONSENSO DE WALL STREET (YAHOO FINANCE) ---
-@st.cache_data(ttl=43200, show_spinner=False)
-def buscar_consenso_analistas(lista_tickers):
-    alvos = {}
-    for ticker in lista_tickers:
-        try:
-            info = yf.Ticker(ticker).info
-            alvos[ticker] = {
-                'Val_Pessimista': info.get('targetLowPrice', 0) or 0,
-                'Val_Base': info.get('targetMeanPrice', 0) or 0,
-                'Val_Otimista': info.get('targetHighPrice', 0) or 0,
-                'Num_Analistas': info.get('numberOfAnalystOpinions', 0) or 0,
-                'Recomendacao': str(info.get('recommendationKey', 'N/A')).replace('_', ' ').title()
-            }
-        except Exception:
-            alvos[ticker] = {'Val_Pessimista': 0, 'Val_Base': 0, 'Val_Otimista': 0, 'Num_Analistas': 0, 'Recomendacao': 'N/A'}
-    return alvos
-
 # --- JANELA DE HISTÓRICO SIMPLES (5 ANOS) ---
 @st.dialog("📈 Histórico de Longo Prazo (5 Anos)", width="large")
 def abrir_historico_simples(ticker, nome):
@@ -109,7 +91,7 @@ def abrir_historico_simples(ticker, nome):
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (RAG COM CONSENSO DE MERCADO) ---
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (RAG INSTITUCIONAL HÍBRIDO) ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker, dados_fundos=None):
     if not GOOGLE_API_KEY:
@@ -179,14 +161,15 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
             v_roic = dados_fundos.get('ROIC_%', 'N/A')
             n_analistas = dados_fundos.get('Num_Analistas', 0)
             recomendacao = dados_fundos.get('Recomendacao', 'N/A')
+            metodo_val = dados_fundos.get('Metodo_Valuation', 'Desconhecido')
             
             contexto_dados += f"""
-        **CONSENSO DE MERCADO (WALL STREET / FARIA LIMA):**
-        - Alvo Pessimista (Analista mais rigoroso): {moeda_ia} {v_pessimista if isinstance(v_pessimista, str) else f"{v_pessimista:.2f}"}
-        - Alvo Base (Média de Mercado): {moeda_ia} {v_base if isinstance(v_base, str) else f"{v_base:.2f}"}
-        - Alvo Otimista (Analista mais agressivo): {moeda_ia} {v_otimista if isinstance(v_otimista, str) else f"{v_otimista:.2f}"}
-        - Grau de Cobertura: {n_analistas} analistas institucionais acompanham este ativo.
-        - Recomendação Média do Consenso: {recomendacao}
+        **VALUATION (METODOLOGIA APLICADA: {metodo_val}):**
+        - Alvo Pessimista: {moeda_ia} {v_pessimista if isinstance(v_pessimista, str) else f"{v_pessimista:.2f}"}
+        - Alvo Base (Preço Justo Central): {moeda_ia} {v_base if isinstance(v_base, str) else f"{v_base:.2f}"}
+        - Alvo Otimista: {moeda_ia} {v_otimista if isinstance(v_otimista, str) else f"{v_otimista:.2f}"}
+        - Cobertura: {n_analistas} analistas acompanham este ativo. (Se o número for 0, o valuation foi calculado matematicamente pelo terminal via DCF).
+        - Recomendação Média: {recomendacao}
         
         **FUNDAMENTOS OPERACIONAIS:**
         - Nota de Qualidade da Empresa (F-Score): {v_fscore} de 5 estrelas.
@@ -199,7 +182,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         Hoje é dia {data_hoje}. Atue como o Analista Chefe do comitê de investimentos. 
         Analise o ativo {ticker}.
         
-        Abaixo estão os Alvos de Consenso de Mercado e as notícias REAIS coletadas:
+        Abaixo estão os Alvos de Valuation e as notícias REAIS coletadas:
         {contexto_dados}
         
         MANCHETES:
@@ -209,7 +192,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$'.
         2. Na Matriz SWOT, você DEVE fornecer EXATAMENTE 3 tópicos para cada categoria.
         3. Nas Notícias, pule uma linha entre a Manchete e o 'Resumo do Analista'.
-        4. Cuidado com falsos otimismos se o "Grau de Cobertura" for muito baixo (poucos analistas).
+        4. Cuidado com falsos otimismos se o "Grau de Cobertura" for muito baixo ou se o Valuation for "DCF Matemático (Terminal)".
         
         A sua resposta DEVE seguir estritamente a estrutura abaixo:
         
@@ -255,16 +238,16 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         ---
         ## 4. O Quadrante de Decisão
         * 📈 **Análise Gráfica (Timing):** [Aprove ou rejeite a entrada com base no Suporte Técnico fornecido em relação ao preço atual].
-        * 💰 **Valuation (Consenso de Analistas):** [Avalie o preço atual frente ao Consenso de Mercado e a Recomendação Média. O mercado está precificando perfeitamente a ação ou há margem baseada na média institucional?].
+        * 💰 **Valuation ({metodo_val}):** [Avalie o preço atual frente ao Cenário Base fornecido. O ativo embute prêmio de risco adequado ou negocia com margem?].
         * 🏢 **Fundamentos:** [Escreva julgando a qualidade da operação com base nas Estrelas F-Score e no ROIC].
         * 🌡️ **Sentimento de Mercado:** [Defina em caixa alta OTIMISTA, NEUTRO ou PESSIMISTA, e escreva justificando com base nas notícias].
         
         ## 👑 Veredito Final
         **Ação Recomendada:** [COMPRAR, MANTER, AGUARDAR SUPORTE ou VENDER].
         
-        **Preço Sugerido para Compra:** [Com base no Suporte Gráfico e no Preço Alvo Base do Consenso, defina o preço teto exato de entrada].
+        **Preço Sugerido para Compra:** [Com base no Suporte Gráfico e no Preço Alvo Base, defina o preço teto exato de entrada].
         
-        **Tese Final:** [Escreva o fechamento da análise cruzando o preço técnico, o consenso de Wall Street, os fundamentos e a narrativa da mídia].
+        **Tese Final:** [Escreva o fechamento da análise cruzando o preço técnico, o valuation, os fundamentos e a narrativa da mídia].
         """
         
         model = genai.GenerativeModel('gemini-2.5-flash-lite')
@@ -353,8 +336,8 @@ acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA",
 acoes_usa_dict = {ticker: (ticker, 2) for ticker in acoes_usa_list}
 
 # --- CRIAÇÃO DAS ABAS ---
-aba_macro, aba_br, aba_usa, aba_fundamentos, aba_consenso, aba_analises, aba_simulador = st.tabs([
-    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Consenso Mercado", "🎯 Raio-X & IA", "🎛️ Simulador"
+aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_analises, aba_simulador = st.tabs([
+    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🎯 Raio-X & IA", "🎛️ Simulador"
 ])
 
 def renderizar_grid_cards(dicionario_ativos, mercado):
@@ -382,7 +365,7 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                                 fig = go.Figure(go.Scatter(x=precos.index, y=precos, mode='lines', line=dict(color=cor_linha, width=2), fill='tozeroy', fillcolor=cor_preenchimento))
                                 fig.update_layout(template="plotly_dark", height=80, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-                                if st.button("🔍 Ver Histórico", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
+                                if st.button("🔍 Histórico", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
                                     abrir_historico_simples(ticker, nome_exibicao)
                                 st.caption(f"⚡ {hora_consulta} | {fonte}")
 
@@ -390,15 +373,16 @@ with aba_macro: renderizar_grid_cards(macro_dict, "Macro")
 with aba_br: renderizar_grid_cards(acoes_br_dict, "BR")
 with aba_usa: renderizar_grid_cards(acoes_usa_dict, "USA")
 
-# --- CARREGAMENTO DOS DADOS BASE ---
+# --- CARREGAMENTO E MESCLAGEM DOS DADOS (O MOTOR HÍBRIDO) ---
 arquivo_csv = "base_dados.csv"
+arquivo_cofre = "cofre_consenso.csv"
 dados_base_carregados = False
 
 if os.path.exists(arquivo_csv):
     df = pd.read_csv(arquivo_csv, sep=";")
     dados_base_carregados = True
     
-    # Cálculos Clássicos (Fase 1 e 2 - Mantidos)
+    # Cálculos Clássicos dos Gurus
     df['Dividendo_Pago'] = df['Preco'] * (df['Div_Yield_%'] / 100)
     df['Teto_Bazin'] = df['Dividendo_Pago'] / 0.06
     df['Margem_Bazin_%'] = np.where(df['Teto_Bazin'] > 0, ((df['Teto_Bazin'] - df['Preco']) / df['Preco']) * 100, 0)
@@ -412,7 +396,6 @@ if os.path.exists(arquivo_csv):
     df.loc[df['Liquidez_Corrente'] > 1.2, 'F_Score'] += 1
     df.loc[df['Crescimento_5a_%'] > 0, 'F_Score'] += 1
     df.loc[df['LPA'] > 0, 'F_Score'] += 1
-    
     df['Saude_Visual'] = df['F_Score'].apply(lambda x: "⭐" * int(x) if pd.notnull(x) and x > 0 else "Sem Nota")
 
     mask_magica = (df['EV_EBIT'] > 0) & (df['ROIC_%'] > 0)
@@ -420,27 +403,85 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- A MÁGICA: SINCRONIZANDO O CONSENSO REAL DE WALL STREET E FARIA LIMA ---
-    with st.spinner("Sincronizando Consenso de Analistas (Yahoo Finance)..."):
-        tickers_unicos = df['Ticker'].unique().tolist()
-        alvos_mercado = buscar_consenso_analistas(tickers_unicos)
-        
-        df['Val_Pessimista'] = df['Ticker'].map(lambda x: alvos_mercado.get(x, {}).get('Val_Pessimista', 0))
-        df['Val_Base'] = df['Ticker'].map(lambda x: alvos_mercado.get(x, {}).get('Val_Base', 0))
-        df['Val_Otimista'] = df['Ticker'].map(lambda x: alvos_mercado.get(x, {}).get('Val_Otimista', 0))
-        df['Num_Analistas'] = df['Ticker'].map(lambda x: alvos_mercado.get(x, {}).get('Num_Analistas', 0))
-        df['Recomendacao'] = df['Ticker'].map(lambda x: alvos_mercado.get(x, {}).get('Recomendacao', 'N/A'))
+    # --- LENDO O COFRE DO ROBÔ ---
+    if os.path.exists(arquivo_cofre):
+        df_cofre = pd.read_csv(arquivo_cofre, sep=";")
+        # Remove duplicatas por segurança e mescla com a base principal
+        df_cofre = df_cofre.drop_duplicates(subset=['Ticker'], keep='last')
+        df = pd.merge(df, df_cofre[['Ticker', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas', 'Recomendacao']], on='Ticker', how='left')
     
-    df['Justo_Mercado'] = df['Val_Base'] # Para o Simulador não quebrar
+    # Garante que as colunas existam mesmo se o cofre não existir
+    for col in ['Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas']:
+        if col not in df.columns: df[col] = 0
+        df[col] = df[col].fillna(0)
+    if 'Recomendacao' not in df.columns: df['Recomendacao'] = 'N/A'
 
-    # --- ABA DE CONSENSO DE MERCADO ---
-    with aba_consenso:
-        st.header("🎯 Consenso Oficial de Mercado (Preço-Alvo)")
-        st.write("Agregação das projeções feitas pelas grandes casas de análise e bancos de investimento (Fonte: Yahoo Finance).")
+    # --- O PLANO B: DCF MATEMÁTICO DO TERMINAL ---
+    # Parâmetros Macro para o cálculo do DCF
+    df['Taxa_Apli'] = np.where(df['Origem'].str.contains("BRAPI|Fundamentus"), taxa_selic_live, taxa_us10y_live)
+    df['Ke'] = (df['Taxa_Apli'] / 100) + 0.055 # Prêmio de risco padrão 5.5%
+    df['g_base'] = df['Crescimento_5a_%'].fillna(0).clip(lower=0, upper=10) / 100
+    df['g_otimista'] = df['Crescimento_5a_%'].fillna(0).clip(lower=0, upper=15) / 100
+
+    def calcular_dcf_realista(lpa, preco_atual, ke_ajustado, g_curto_prazo, g_perpetuidade):
+        if lpa <= 0 or pd.isna(lpa): return 0
+        
+        pv_estagio1 = 0
+        lucro_temp = lpa
+        for i in range(1, 6):
+            lucro_temp *= (1 + g_curto_prazo)
+            pv_estagio1 += lucro_temp / ((1 + ke_ajustado) ** i)
+            
+        if ke_ajustado <= g_perpetuidade: return 0 
+            
+        valor_terminal = (lucro_temp * (1 + g_perpetuidade)) / (ke_ajustado - g_perpetuidade)
+        pv_terminal = valor_terminal / ((1 + ke_ajustado) ** 5)
+        
+        valor_intrinseco = pv_estagio1 + pv_terminal
+        
+        # O Sanity Check (Atenuador Proporcional)
+        if preco_atual > 0 and valor_intrinseco > preco_atual * 1.5:
+            teto_livre = preco_atual * 1.5
+            excesso = valor_intrinseco - teto_livre
+            valor_intrinseco = teto_livre + (excesso * 0.15)
+            
+        return valor_intrinseco
+
+    # --- A MESCLAGEM HÍBRIDA FINAL ---
+    v_pess_final, v_base_final, v_otim_final, metodo_final = [], [], [], []
+    
+    for index, row in df.iterrows():
+        # Se o Cofre tem o Consenso, usa ele
+        if row['Val_Base'] > 0:
+            v_pess_final.append(row['Val_Pessimista'])
+            v_base_final.append(row['Val_Base'])
+            v_otim_final.append(row['Val_Otimista'])
+            metodo_final.append("Consenso Analistas")
+        # Se o Cofre veio vazio, o Terminal calcula na hora
+        else:
+            pess = calcular_dcf_realista(row['LPA'], row['Preco'], row['Ke'] + 0.02, 0.0, 0.01)
+            base = calcular_dcf_realista(row['LPA'], row['Preco'], row['Ke'], row['g_base'], 0.03)
+            otim = calcular_dcf_realista(row['LPA'], row['Preco'], max(row['Ke'] - 0.01, 0.07), row['g_otimista'], 0.035)
+            v_pess_final.append(pess)
+            v_base_final.append(base)
+            v_otim_final.append(otim)
+            metodo_final.append("DCF Matemático (Terminal)")
+
+    # Aplica as listas finais de volta ao dataframe
+    df['Val_Pessimista'] = v_pess_final
+    df['Val_Base'] = v_base_final
+    df['Val_Otimista'] = v_otim_final
+    df['Metodo_Valuation'] = metodo_final
+    df['Justo_Mercado'] = df['Val_Base'] # Alvo principal para o Simulador
+
+    # --- ABA DE VALUATION PRO (HÍBRIDA) ---
+    with aba_valuation:
+        st.header("🧮 Valuation Institucional (Painel Híbrido)")
+        st.write("Agregação do Consenso de Mercado. Se o ativo não tiver cobertura de analistas, o terminal aciona o algoritmo DCF de 2 estágios.")
         
         df_cenarios = df.copy()
-        df_cenarios = df_cenarios[['Ticker', 'Preco', 'Num_Analistas', 'Recomendacao', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Origem']]
-        df_cenarios = df_cenarios[df_cenarios['Val_Base'] > 0] # Mostra apenas quem tem cobertura de mercado
+        df_cenarios = df_cenarios[['Ticker', 'Preco', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas', 'Recomendacao', 'Metodo_Valuation', 'Origem']]
+        df_cenarios = df_cenarios[df_cenarios['Val_Base'] > 0]
         
         df_cenarios['Margem_Base'] = ((df_cenarios['Val_Base'] - df_cenarios['Preco']) / df_cenarios['Preco']) * 100
         df_cenarios = df_cenarios.sort_values(by='Margem_Base', ascending=False)
@@ -451,16 +492,15 @@ if os.path.exists(arquivo_csv):
             
         df_cenarios['Preco Atual'] = df_cenarios.apply(lambda r: formata_val(r, 'Preco'), axis=1)
         df_cenarios['🔴 Alvo Pessimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Pessimista'), axis=1)
-        df_cenarios['🟡 Alvo Base (Média)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Base'), axis=1)
+        df_cenarios['🟡 Alvo Base (Média/Justo)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Base'), axis=1)
         df_cenarios['🟢 Alvo Otimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Otimista'), axis=1)
         
-        # Colunas com a Recomendação e Total de Analistas ao lado dos Preços
         st.dataframe(
-            df_cenarios[['Ticker', 'Preco Atual', '🔴 Alvo Pessimista', '🟡 Alvo Base (Média)', '🟢 Alvo Otimista', 'Num_Analistas', 'Recomendacao']], 
+            df_cenarios[['Ticker', 'Preco Atual', '🔴 Alvo Pessimista', '🟡 Alvo Base (Média/Justo)', '🟢 Alvo Otimista', 'Num_Analistas', 'Recomendacao', 'Metodo_Valuation']], 
             use_container_width=True, hide_index=True
         )
 
-    # --- ABA DE FUNDAMENTOS (OS GURUS) ---
+    # --- ABA DE FUNDAMENTOS ---
     with aba_fundamentos:
         st.header("Radar de Valor e Qualidade (Gurus Clássicos)")
         df_fundo = df.copy()
@@ -493,7 +533,7 @@ if os.path.exists(arquivo_csv):
             w_bazin = c2.slider("Renda (Bazin)", 0, 100, 20)
             w_magic = c3.slider("Qualidade (Magic)", 0, 100, 20)
             w_fscore = c4.slider("Saúde (F-Score)", 0, 100, 20)
-            w_dcf = c5.slider("Consenso de Mercado", 0, 100, 20)
+            w_dcf = c5.slider("Mercado (Consenso/DCF)", 0, 100, 20)
 
         df_sim = df.copy()
         df_sim['Margem_Mercado_%'] = np.where(df_sim['Val_Base'] > 0, ((df_sim['Val_Base'] - df_sim['Preco']) / df_sim['Preco']) * 100, 0)
@@ -523,7 +563,7 @@ if os.path.exists(arquivo_csv):
         st.dataframe(df_sim[['Rank', 'Ticker', 'Preco_Atual', 'Nota_Final', 'Veredito', 'Saude_Visual']], use_container_width=True, hide_index=True)
 
 else: 
-    with aba_consenso: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
+    with aba_valuation: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
     with aba_fundamentos: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
     with aba_simulador: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
 
