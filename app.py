@@ -450,7 +450,7 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- ABA DE RANKINGS DINÂMICOS (SCREENER COM HTML/CSS CUSTOMIZADO) ---
+    # --- ABA DE RANKINGS DINÂMICOS (SCREENER COM HTML INLINE STYLE) ---
     with aba_rankings:
         st.header("🏆 Rankings de Pechinchas (Screener)")
         st.write("Ações separadas por mercado para garantir comparabilidade justa de risco e prêmio.")
@@ -485,11 +485,43 @@ if os.path.exists(arquivo_csv):
         def format_money(r, c):
             simb = "R$" if "Fundamentus" in str(r['Origem']) else "$"
             return f"{simb} {r[c]:.2f}"
+            
+        def gerar_badge_recomendacao(rec):
+            rec_str = str(rec).strip().lower()
+            if rec_str in ['nan', 'none', 'n/a', '']:
+                return "<span style='color: #7f8c8d; font-weight: bold;'>---</span>"
+            
+            if "strong buy" in rec_str:
+                cor = "#00b894" # Verde forte
+                bg = "rgba(0, 184, 148, 0.1)"
+                texto = "Strong Buy"
+            elif "buy" in rec_str:
+                cor = "#00cc66" # Verde neon
+                bg = "rgba(0, 204, 102, 0.1)"
+                texto = "Buy"
+            elif "hold" in rec_str:
+                cor = "#f1c40f" # Amarelo
+                bg = "rgba(241, 196, 15, 0.1)"
+                texto = "Hold"
+            elif "strong sell" in rec_str:
+                cor = "#c0392b" # Vermelho escuro
+                bg = "rgba(192, 57, 43, 0.1)"
+                texto = "Strong Sell"
+            elif "sell" in rec_str:
+                cor = "#ff4b4b" # Vermelho claro
+                bg = "rgba(255, 75, 75, 0.1)"
+                texto = "Sell"
+            else:
+                cor = "#bdc3c7"
+                bg = "rgba(189, 195, 199, 0.1)"
+                texto = str(rec).title()
+                
+            estilo = f"border: 1px solid {cor}; color: {cor}; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; background-color: {bg}; text-transform: uppercase;"
+            return f"<span style='{estilo}'>{texto}</span>"
 
         df_br = df_rank[df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
         df_usa = df_rank[~df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
 
-        # Renderizador de Tabela HTML/CSS Personalizada com Cores Condicionais
         def mostrar_tabela_ranking(df_sub, titulo):
             st.subheader(titulo)
             if df_sub.empty:
@@ -508,17 +540,12 @@ if os.path.exists(arquivo_csv):
             .tabela-pro td { padding: 14px 12px; border-bottom: 1px solid #2b2b2b; color: #ecf0f1; font-size: 13px; }
             .tabela-pro tr:hover { background-color: #252525; }
             .tabela-ativo { color: #3498db; font-weight: bold; text-decoration: none; }
-            .badge-ia { border: 1px solid #f1c40f; color: #f1c40f; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; background: rgba(241, 196, 15, 0.05); }
-            .val-positivo { color: #00cc66; font-weight: bold; }
-            .val-negativo { color: #ff4b4b; font-weight: bold; }
-            .val-neutro { color: #bdc3c7; font-weight: bold; }
             </style>
             <table class="tabela-pro">
               <thead>
                 <tr>
                   <th>Posição</th>
                   <th>Ativo</th>
-                  <th>Status IA</th>
                   <th>Preço Atual</th>
                   <th>Preço Alvo</th>
                   <th>Upside / Margem</th>
@@ -531,36 +558,36 @@ if os.path.exists(arquivo_csv):
             for idx, row in df_sub.iterrows():
                 preco_atual = format_money(row, 'Preco')
                 
-                # LÓGICA DE CORES INJETADA AQUI
+                # Cores forçadas via Inline Style (Garante que funciona no Streamlit)
                 if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)":
                     preco_alvo = "---"
                     upside_text = f"Score: {row['Pontuacao_Magica']:.0f}"
-                    upside_class = "val-positivo" # Score baixo é bom, mantém verde pro destaque
+                    upside_style = "color: #00cc66; font-weight: bold;" 
                 else:
                     preco_alvo = format_money(row, col_alvo)
                     upside_val = row[col_margem]
                     if upside_val > 0:
                         upside_text = f"+{upside_val:.2f}%"
-                        upside_class = "val-positivo"
+                        upside_style = "color: #00cc66; font-weight: bold;" 
                     elif upside_val < 0:
                         upside_text = f"{upside_val:.2f}%"
-                        upside_class = "val-negativo"
+                        upside_style = "color: #ff4b4b; font-weight: bold;" 
                     else:
                         upside_text = "0.00%"
-                        upside_class = "val-neutro"
+                        upside_style = "color: #bdc3c7; font-weight: bold;"
 
                 html += f"""
                 <tr>
                   <td>{row['Posição']}</td>
                   <td class="tabela-ativo">{row['Ticker']}</td>
-                  <td><span class="badge-ia">N/A</span></td>
                   <td>{preco_atual}</td>
                   <td>{preco_alvo}</td>
-                  <td class="{upside_class}">{upside_text}</td>
+                  <td style="{upside_style}">{upside_text}</td>
                   <td>{row['Saude_Visual']}</td>
                 """
                 if "Consenso" in filtro_metodo:
-                    html += f"<td>{row['Num_Analistas']}</td><td>{row['Recomendacao']}</td>"
+                    badge = gerar_badge_recomendacao(row['Recomendacao'])
+                    html += f"<td>{row['Num_Analistas']}</td><td>{badge}</td>"
                 html += "</tr>"
 
             html += "</tbody></table>"
