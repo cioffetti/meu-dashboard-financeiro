@@ -450,7 +450,7 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- ABA DE RANKINGS DINÂMICOS (SCREENER COM HTML INLINE STYLE) ---
+    # --- ABA DE RANKINGS DINÂMICOS (SCREENER COM HTML INLINE STYLE 100% BLINDADO) ---
     with aba_rankings:
         st.header("🏆 Rankings de Pechinchas (Screener)")
         st.write("Ações separadas por mercado para garantir comparabilidade justa de risco e prêmio.")
@@ -539,7 +539,6 @@ if os.path.exists(arquivo_csv):
             .tabela-pro th { background-color: #151515; color: #ff9900; font-size: 11px; text-transform: uppercase; padding: 14px 12px; text-align: left; border-bottom: 2px solid #333; }
             .tabela-pro td { padding: 14px 12px; border-bottom: 1px solid #2b2b2b; color: #ecf0f1; font-size: 13px; }
             .tabela-pro tr:hover { background-color: #252525; }
-            .tabela-ativo { color: #3498db; font-weight: bold; text-decoration: none; }
             </style>
             <table class="tabela-pro">
               <thead>
@@ -558,7 +557,7 @@ if os.path.exists(arquivo_csv):
             for idx, row in df_sub.iterrows():
                 preco_atual = format_money(row, 'Preco')
                 
-                # Cores forçadas via Inline Style (Garante que funciona no Streamlit)
+                # Cores forçadas 100% via Inline Style
                 if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)":
                     preco_alvo = "---"
                     upside_text = f"Score: {row['Pontuacao_Magica']:.0f}"
@@ -578,16 +577,16 @@ if os.path.exists(arquivo_csv):
 
                 html += f"""
                 <tr>
-                  <td>{row['Posição']}</td>
-                  <td class="tabela-ativo">{row['Ticker']}</td>
-                  <td>{preco_atual}</td>
-                  <td>{preco_alvo}</td>
+                  <td style="font-weight: bold; color: #ecf0f1;">{row['Posição']}</td>
+                  <td style="color: #3498db; font-weight: bold;">{row['Ticker']}</td>
+                  <td style="font-weight: bold; color: #ecf0f1;">{preco_atual}</td>
+                  <td style="font-weight: bold; color: #ecf0f1;">{preco_alvo}</td>
                   <td style="{upside_style}">{upside_text}</td>
-                  <td>{row['Saude_Visual']}</td>
+                  <td style="font-weight: bold; color: #ecf0f1;">{row['Saude_Visual']}</td>
                 """
                 if "Consenso" in filtro_metodo:
                     badge = gerar_badge_recomendacao(row['Recomendacao'])
-                    html += f"<td>{row['Num_Analistas']}</td><td>{badge}</td>"
+                    html += f"<td style='font-weight: bold; color: #ecf0f1;'>{row['Num_Analistas']}</td><td>{badge}</td>"
                 html += "</tr>"
 
             html += "</tbody></table>"
