@@ -172,7 +172,6 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
     st.info(f"Coletando notícias reais e cruzando Pilares Institucionais para **{ticker}**...")
     
     try:
-        # TENTATIVA DE BUSCAR A DATA EXATA DO ÚLTIMO BALANÇO
         data_balanco_str = "Recente"
         try:
             ativo_yf = yf.Ticker(ticker)
@@ -252,10 +251,10 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         - Alvo Pessimista: {moeda_ia} {v_pessimista if isinstance(v_pessimista, str) else f"{v_pessimista:.2f}"}
         - Alvo Base (Preço Justo Central): {moeda_ia} {v_base if isinstance(v_base, str) else f"{v_base:.2f}"}
         - Alvo Otimista: {moeda_ia} {v_otimista if isinstance(v_otimista, str) else f"{v_otimista:.2f}"}
-        - Cobertura: {n_analistas} analistas acompanham este ativo. (Se a fonte for 'Sem Cobertura', informe o usuário que não há consenso claro).
+        - Cobertura: {n_analistas} analistas acompanham este ativo.
         - Recomendação Média: {recomendacao}
         
-        **FUNDAMENTOS PARA O SEU CONTEXTO (NÃO CITE ESTES NÚMEROS DIRETAMENTE NO TEXTO):**
+        **FUNDAMENTOS (NÃO CITE ESTES NÚMEROS DIRETAMENTE NO TEXTO):**
         - Qualidade F-Score: {v_fscore} de 5 estrelas.
         - Eficiência ROIC: {v_roic}%
             """
@@ -302,17 +301,17 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         * [Ameaça 3]
         
         ## 2. Raio-X do Balanço (Foco Operacional - Referência: Balanço de {data_balanco_str})
-        REGRA RIGOROSA E INEGOCIÁVEL: NÃO mencione as palavras "F-Score", "ROIC", "Valuation", nem cite as notas matemáticas. Leia os fundamentos operacionais implícitos da empresa no mundo real com base em seu conhecimento da economia atual e das notícias (fale sobre: endividamento, margem de lucro real, portfólio de produtos, vendas, gestão, concorrência).
+        REGRA RIGOROSA: NÃO mencione as palavras "F-Score", "ROIC", "Valuation", nem cite as notas matemáticas. Leia os fundamentos operacionais implícitos da empresa no mundo real com base em seu conhecimento da economia atual e das notícias.
         
         **Pontos Positivos:**
-        * ✅ [Fato positivo real 1 sobre a operação/negócio, NÃO USE FÓRMULAS]
-        * ✅ [Fato positivo real 2 sobre a operação/negócio, NÃO USE FÓRMULAS]
-        * ✅ [Fato positivo real 3 sobre a operação/negócio, NÃO USE FÓRMULAS]
+        * ✅ [Fato positivo real 1 sobre a operação/negócio]
+        * ✅ [Fato positivo real 2 sobre a operação/negócio]
+        * ✅ [Fato positivo real 3 sobre a operação/negócio]
         
         **Pontos de Atenção (Negativos):**
-        * ⚠️ [Fato negativo/risco real 1 sobre a operação/negócio, NÃO USE FÓRMULAS]
-        * ⚠️ [Fato negativo/risco real 2 sobre a operação/negócio, NÃO USE FÓRMULAS]
-        * ⚠️ [Fato negativo/risco real 3 sobre a operação/negócio, NÃO USE FÓRMULAS]
+        * ⚠️ [Fato negativo/risco real 1 sobre a operação/negócio]
+        * ⚠️ [Fato negativo/risco real 2 sobre a operação/negócio]
+        * ⚠️ [Fato negativo/risco real 3 sobre a operação/negócio]
         
         ## 3. Termômetro de Notícias
         Selecione as 3 manchetes reais mais relevantes.
@@ -490,36 +489,75 @@ if os.path.exists(arquivo_csv):
         df_br = df_rank[df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
         df_usa = df_rank[~df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
 
+        # Renderizador de Tabela HTML/CSS Personalizada
         def mostrar_tabela_ranking(df_sub, titulo):
             st.subheader(titulo)
-            st.divider()
             if df_sub.empty:
                 st.info("Nenhum ativo atende aos critérios nesta métrica.")
                 return
             
             asc = True if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)" else False
             df_sub = df_sub.sort_values(by=col_margem, ascending=asc).reset_index(drop=True)
-            
             df_sub.index = df_sub.index + 1
             df_sub['Posição'] = df_sub.index.astype(str) + "º"
             
-            df_sub['Preço Atual'] = df_sub.apply(lambda r: format_money(r, 'Preco'), axis=1)
-            
-            if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)":
-                df_sub['Preço Alvo'] = "N/A (Ranking Baseado em Score)"
-                df_sub['Upside / Margem'] = df_sub['Pontuacao_Magica'].apply(lambda x: f"Score: {x:.0f}")
-            else:
-                df_sub['Preço Alvo'] = df_sub.apply(lambda r: format_money(r, col_alvo), axis=1)
-                df_sub['Upside / Margem'] = df_sub[col_margem].apply(lambda x: f"+{x:.2f}%" if x > 0 else f"{x:.2f}%")
-
-            cols_to_show = ['Posição', 'Ticker', 'Preço Atual', 'Preço Alvo', 'Upside / Margem', 'Saude_Visual']
+            html = """
+            <style>
+            .tabela-pro { width: 100%; border-collapse: collapse; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e1e; border-radius: 8px; overflow: hidden; margin-bottom: 20px;}
+            .tabela-pro th { background-color: #151515; color: #ff9900; font-size: 11px; text-transform: uppercase; padding: 14px 12px; text-align: left; border-bottom: 2px solid #333; }
+            .tabela-pro td { padding: 14px 12px; border-bottom: 1px solid #2b2b2b; color: #ecf0f1; font-size: 13px; }
+            .tabela-pro tr:hover { background-color: #252525; }
+            .tabela-ativo { color: #3498db; font-weight: bold; text-decoration: none; }
+            .badge-ia { border: 1px solid #f1c40f; color: #f1c40f; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; background: rgba(241, 196, 15, 0.05); }
+            .val-positivo { color: #00cc66; font-weight: bold; }
+            .val-neutro { color: #bdc3c7; }
+            </style>
+            <table class="tabela-pro">
+              <thead>
+                <tr>
+                  <th>Posição</th>
+                  <th>Ativo</th>
+                  <th>Status IA</th>
+                  <th>Preço Atual</th>
+                  <th>Preço Alvo</th>
+                  <th>Upside / Margem</th>
+                  <th>Saúde Visual</th>
+            """
             if "Consenso" in filtro_metodo:
-                cols_to_show.extend(['Num_Analistas', 'Recomendacao'])
+                html += "<th>Analistas</th><th>Recomendação</th>"
+            html += "</tr></thead><tbody>"
 
-            st.dataframe(df_sub[cols_to_show], use_container_width=True, hide_index=True)
+            for idx, row in df_sub.iterrows():
+                preco_atual = format_money(row, 'Preco')
+                
+                if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)":
+                    preco_alvo = "---"
+                    upside_text = f"Score: {row['Pontuacao_Magica']:.0f}"
+                    upside_class = "val-positivo"
+                else:
+                    preco_alvo = format_money(row, col_alvo)
+                    upside_val = row[col_margem]
+                    upside_text = f"+{upside_val:.2f}%" if upside_val > 0 else f"{upside_val:.2f}%"
+                    upside_class = "val-positivo" if upside_val > 0 else "val-neutro"
+
+                html += f"""
+                <tr>
+                  <td>{row['Posição']}</td>
+                  <td class="tabela-ativo">{row['Ticker']}</td>
+                  <td><span class="badge-ia">N/A</span></td>
+                  <td>{preco_atual}</td>
+                  <td>{preco_alvo}</td>
+                  <td class="{upside_class}">{upside_text}</td>
+                  <td>{row['Saude_Visual']}</td>
+                """
+                if "Consenso" in filtro_metodo:
+                    html += f"<td>{row['Num_Analistas']}</td><td>{row['Recomendacao']}</td>"
+                html += "</tr>"
+
+            html += "</tbody></table>"
+            st.markdown(html, unsafe_allow_html=True)
 
         mostrar_tabela_ranking(df_br, "🇧🇷 Top Oportunidades: Brasil")
-        st.write("")
         mostrar_tabela_ranking(df_usa, "🇺🇸 Top Oportunidades: Wall Street")
 
     # --- ABA DE VALUATION PRO ---
