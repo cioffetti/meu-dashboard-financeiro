@@ -47,7 +47,7 @@ def buscar_dados_em_lote(lista_tickers, mercado="Macro"):
     try:
         tickers_str = " ".join(lista_tickers)
         dados = yf.download(tickers_str, period="7d", interval="1d", progress=False)
-        fechamentos = pd.DataFrame(dados['Close']) if len(lista_tickers) == 1 else dados['Close']
+        fechamentos = pd.DataFrame(dados['Close']) if isinstance(dados['Close'], pd.Series) else dados['Close']
         if len(lista_tickers) == 1: fechamentos.columns = lista_tickers
         return fechamentos, "Yahoo Finance"
     except Exception as e:
@@ -67,6 +67,25 @@ def buscar_taxas_macro():
     return selic_atual, us10y_atual
 
 taxa_selic_live, taxa_us10y_live = buscar_taxas_macro()
+
+# --- ATUALIZADOR DE PREÇOS AO VIVO (CORREÇÃO DO BUG DO PREÇO ESTÁTICO) ---
+@st.cache_data(ttl=300)
+def injetar_precos_ao_vivo(df_base):
+    df_atualizado = df_base.copy()
+    tickers_busca = df_atualizado['Ticker'].astype(str).tolist()
+    try:
+        dados = yf.download(" ".join(tickers_busca), period="5d", progress=False)
+        if 'Close' in dados:
+            fechamentos = pd.DataFrame(dados['Close']) if isinstance(dados['Close'], pd.Series) else dados['Close']
+            for idx, row in df_atualizado.iterrows():
+                t = str(row['Ticker'])
+                if t in fechamentos.columns:
+                    serie_preco = fechamentos[t].dropna()
+                    if not serie_preco.empty:
+                        df_atualizado.at[idx, 'Preco'] = float(serie_preco.iloc[-1])
+    except Exception:
+        pass
+    return df_atualizado
 
 # --- JANELA DE HISTÓRICO SIMPLES (5 ANOS) ---
 @st.dialog("📈 Histórico de Longo Prazo (5 Anos)", width="large")
@@ -380,9 +399,12 @@ dados_base_carregados = False
 
 if os.path.exists(arquivo_csv):
     df = pd.read_csv(arquivo_csv, sep=";")
+    
+    # 🔴 AQUI ESTÁ A CORREÇÃO DO BUG: INJETA O PREÇO AO VIVO DA TELA HOJE 🔴
+    df = injetar_precos_ao_vivo(df)
     dados_base_carregados = True
     
-    # Cálculos Clássicos dos Gurus
+    # Cálculos Clássicos dos Gurus (Agora usando o preço fresquinho)
     df['Dividendo_Pago'] = df['Preco'] * (df['Div_Yield_%'] / 100)
     df['Teto_Bazin'] = df['Dividendo_Pago'] / 0.06
     df['Margem_Bazin_%'] = np.where(df['Teto_Bazin'] > 0, ((df['Teto_Bazin'] - df['Preco']) / df['Preco']) * 100, 0)
@@ -406,78 +428,99 @@ if os.path.exists(arquivo_csv):
     # --- LENDO O COFRE DO ROBÔ ---
     if os.path.exists(arquivo_cofre):
         df_cofre = pd.read_csv(arquivo_cofre, sep=";")
-        # Remove duplicatas por segurança e mescla com a base principal
         df_cofre = df_cofre.drop_duplicates(subset=['Ticker'], keep='last')
         df = pd.merge(df, df_cofre[['Ticker', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas', 'Recomendacao']], on='Ticker', how='left')
     
-    # Garante que as colunas existam mesmo se o cofre não existir
     for col in ['Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas']:
         if col not in df.columns: df[col] = 0
         df[col] = df[col].fillna(0)
     if 'Recomendacao' not in df.columns: df['Recomendacao'] = 'N/A'
 
-    # --- O PLANO B: DCF MATEMÁTICO DO TERMINAL ---
-    # Parâmetros Macro para o cálculo do DCF
-    df['Taxa_Apli'] = np.where(df['Origem'].str.contains("BRAPI|Fundamentus"), taxa_selic_live, taxa_us10y_live)
-    df['Ke'] = (df['Taxa_Apli'] / 100) + 0.055 # Prêmio de risco padrão 5.5%
-    df['g_base'] = df['Crescimento_5a_%'].fillna(0).clip(lower=0, upper=10) / 100
-    df['g_otimista'] = df['Crescimento_5a_%'].fillna(0).clip(lower=0, upper=15) / 100
-
-    def calcular_dcf_realista(lpa, preco_atual, ke_ajustado, g_curto_prazo, g_perpetuidade):
-        if lpa <= 0 or pd.isna(lpa): return 0
+    # --- O PLANO B: DCF MATEMÁTICO SETORIAL (V2) ---
+    selic_projetada = min(taxa_selic_live, 9.5) 
+    
+    def definir_premissas_setoriais(ticker, tx_livre, tx_usa, cresc_hist):
+        ticker_str = str(ticker).upper()
+        is_br = ".SA" in ticker_str or ticker_str.endswith(("3", "4", "5", "6", "11"))
+        risk_free = (selic_projetada / 100) if is_br else (tx_usa / 100)
+        cresc = max(cresc_hist / 100, 0) if pd.notnull(cresc_hist) else 0.02
         
+        if any(x in ticker_str for x in ['CMIG', 'TAEE', 'EGIE', 'EQTL', 'SAPR', 'TRPL', 'SBSP']):
+            premio_risco, g_curto, g_perp = 0.04, min(cresc, 0.04), 0.03
+        elif any(x in ticker_str for x in ['BBDC', 'BBAS', 'ITUB', 'SANB', 'BBSE', 'CXSE', 'PSSA', 'BRSR']):
+            premio_risco, g_curto, g_perp = 0.05, min(cresc, 0.05), 0.025
+        elif any(x in ticker_str for x in ['PETR', 'PRIO', 'VALE', 'KLBN', 'SUZB', 'AGRO', 'CSNA']):
+            premio_risco, g_curto, g_perp = 0.065, min(cresc, 0.03), 0.015
+        elif not is_br:
+            premio_risco, g_curto, g_perp = 0.05, min(cresc, 0.10), 0.035
+        else:
+            premio_risco, g_curto, g_perp = 0.06, min(cresc, 0.08), 0.025
+            
+        ke = risk_free + premio_risco
+        return ke, g_curto, g_perp
+
+    def calcular_dcf_setorial(lpa, preco_atual, ke_ajustado, g_curto, g_perp, cenario="Base"):
+        if lpa <= 0 or pd.isna(lpa): return 0
+        if cenario == "Pessimista":
+            ke_ajustado += 0.01
+            g_curto = max(g_curto - 0.02, 0)
+            g_perp = max(g_perp - 0.01, 0)
+        elif cenario == "Otimista":
+            ke_ajustado = max(ke_ajustado - 0.01, 0.06)
+            g_curto += 0.02
+            g_perp = min(g_perp + 0.01, 0.04)
+
         pv_estagio1 = 0
         lucro_temp = lpa
         for i in range(1, 6):
-            lucro_temp *= (1 + g_curto_prazo)
+            lucro_temp *= (1 + g_curto)
             pv_estagio1 += lucro_temp / ((1 + ke_ajustado) ** i)
             
-        if ke_ajustado <= g_perpetuidade: return 0 
+        if ke_ajustado <= g_perp: return 0 
             
-        valor_terminal = (lucro_temp * (1 + g_perpetuidade)) / (ke_ajustado - g_perpetuidade)
+        valor_terminal = (lucro_temp * (1 + g_perp)) / (ke_ajustado - g_perp)
         pv_terminal = valor_terminal / ((1 + ke_ajustado) ** 5)
-        
         valor_intrinseco = pv_estagio1 + pv_terminal
         
-        # O Sanity Check (Atenuador Proporcional)
-        if preco_atual > 0 and valor_intrinseco > preco_atual * 1.5:
-            teto_livre = preco_atual * 1.5
+        if preco_atual > 0 and valor_intrinseco > preco_atual * 1.3:
+            teto_livre = preco_atual * 1.3
             excesso = valor_intrinseco - teto_livre
-            valor_intrinseco = teto_livre + (excesso * 0.15)
+            valor_intrinseco = teto_livre + (excesso * 0.20) 
             
         return valor_intrinseco
 
-    # --- A MESCLAGEM HÍBRIDA FINAL ---
+    # --- A MESCLAGEM HÍBRIDA FINAL (REGRAS CLARAS DE SOBERANIA DO COFRE) ---
     v_pess_final, v_base_final, v_otim_final, metodo_final = [], [], [], []
     
     for index, row in df.iterrows():
-        # Se o Cofre tem o Consenso, usa ele
+        # LÓGICA DE SOBERANIA: Se tem consenso no cofre, PULA A MATEMÁTICA
         if row['Val_Base'] > 0:
             v_pess_final.append(row['Val_Pessimista'])
             v_base_final.append(row['Val_Base'])
             v_otim_final.append(row['Val_Otimista'])
             metodo_final.append("Consenso Analistas")
-        # Se o Cofre veio vazio, o Terminal calcula na hora
+        # Se NÃO TEM no cofre, aí sim o Terminal calcula
         else:
-            pess = calcular_dcf_realista(row['LPA'], row['Preco'], row['Ke'] + 0.02, 0.0, 0.01)
-            base = calcular_dcf_realista(row['LPA'], row['Preco'], row['Ke'], row['g_base'], 0.03)
-            otim = calcular_dcf_realista(row['LPA'], row['Preco'], max(row['Ke'] - 0.01, 0.07), row['g_otimista'], 0.035)
+            ke, g_curto, g_perp = definir_premissas_setoriais(row['Ticker'], taxa_selic_live, taxa_us10y_live, row['Crescimento_5a_%'])
+            pess = calcular_dcf_setorial(row['LPA'], row['Preco'], ke, g_curto, g_perp, "Pessimista")
+            base = calcular_dcf_setorial(row['LPA'], row['Preco'], ke, g_curto, g_perp, "Base")
+            otim = calcular_dcf_setorial(row['LPA'], row['Preco'], ke, g_curto, g_perp, "Otimista")
+            
             v_pess_final.append(pess)
             v_base_final.append(base)
             v_otim_final.append(otim)
             metodo_final.append("DCF Matemático (Terminal)")
 
-    # Aplica as listas finais de volta ao dataframe
     df['Val_Pessimista'] = v_pess_final
     df['Val_Base'] = v_base_final
     df['Val_Otimista'] = v_otim_final
     df['Metodo_Valuation'] = metodo_final
-    df['Justo_Mercado'] = df['Val_Base'] # Alvo principal para o Simulador
+    df['Justo_Mercado'] = df['Val_Base']
 
-    # --- ABA DE VALUATION PRO (HÍBRIDA) ---
+    # --- RENDERIZAÇÃO: ABA DE VALUATION PRO ---
     with aba_valuation:
         st.header("🧮 Valuation Institucional (Painel Híbrido)")
-        st.write("Agregação do Consenso de Mercado. Se o ativo não tiver cobertura de analistas, o terminal aciona o algoritmo DCF de 2 estágios.")
+        st.write("Agregação do Consenso de Mercado. O algoritmo DCF interno só é acionado para ações que não possuem cobertura dos analistas.")
         
         df_cenarios = df.copy()
         df_cenarios = df_cenarios[['Ticker', 'Preco', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas', 'Recomendacao', 'Metodo_Valuation', 'Origem']]
@@ -487,45 +530,39 @@ if os.path.exists(arquivo_csv):
         df_cenarios = df_cenarios.sort_values(by='Margem_Base', ascending=False)
         
         def formata_val(linha, col):
+            if pd.isna(linha[col]): return "N/A"
             simb = "R$" if "Fundamentus" in str(linha['Origem']) else "$"
             return f"{simb} {linha[col]:.2f}"
             
         df_cenarios['Preco Atual'] = df_cenarios.apply(lambda r: formata_val(r, 'Preco'), axis=1)
         df_cenarios['🔴 Alvo Pessimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Pessimista'), axis=1)
-        df_cenarios['🟡 Alvo Base (Média/Justo)'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Base'), axis=1)
+        df_cenarios['🟡 Alvo Base'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Base'), axis=1)
         df_cenarios['🟢 Alvo Otimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Otimista'), axis=1)
         
         st.dataframe(
-            df_cenarios[['Ticker', 'Preco Atual', '🔴 Alvo Pessimista', '🟡 Alvo Base (Média/Justo)', '🟢 Alvo Otimista', 'Num_Analistas', 'Recomendacao', 'Metodo_Valuation']], 
+            df_cenarios[['Ticker', 'Preco Atual', '🔴 Alvo Pessimista', '🟡 Alvo Base', '🟢 Alvo Otimista', 'Num_Analistas', 'Recomendacao', 'Metodo_Valuation']], 
             use_container_width=True, hide_index=True
         )
 
-    # --- ABA DE FUNDAMENTOS ---
+    # --- RENDERIZAÇÃO: ABA DE FUNDAMENTOS ---
     with aba_fundamentos:
-        st.header("Radar de Valor e Qualidade (Gurus Clássicos)")
-        df_fundo = df.copy()
-        
-        mercado = st.radio("Mercado Alvo:", ["Todos", "Ações Brasil", "Ações EUA"], horizontal=True)
-        if mercado == "Ações Brasil": df_fundo = df_fundo[df_fundo['Origem'].str.contains("BRAPI|Fundamentus", na=False)]
-        elif mercado == "Ações EUA": df_fundo = df_fundo[df_fundo['Origem'].str.contains("Finnhub|Yahoo", na=False)]
-        
-        df_fundo = df_fundo.sort_values(by='F_Score', ascending=False)
-        
-        colunas_dinheiro = ['Preco', 'Teto_Bazin', 'Justo_Graham', 'Justo_Mercado']
+        st.header("Radar de Valor e Qualidade")
+        df_fundo = df.copy().sort_values(by='F_Score', ascending=False)
         def formatar_moeda(linha, nome_coluna):
             valor = linha[nome_coluna]
             if pd.isna(valor) or valor == 0: return "N/A"
             simbolo = "R$" if "Fundamentus" in str(linha['Origem']) else "$"
             return f"{simbolo} {valor:.2f}"
 
-        for col in colunas_dinheiro:
+        for col in ['Preco', 'Teto_Bazin', 'Justo_Graham', 'Justo_Mercado']:
             df_fundo[col] = df_fundo.apply(lambda row: formatar_moeda(row, col), axis=1)
             
         st.dataframe(df_fundo[['Ticker', 'Preco', 'Saude_Visual', 'ROIC_%', 'Teto_Bazin', 'Justo_Graham']], use_container_width=True, hide_index=True)
 
-    # --- ABA SIMULADOR PONDERADO ---
+    # --- RENDERIZAÇÃO: ABA SIMULADOR ---
     with aba_simulador:
         st.header("🎛️ Laboratório de Estratégia Ponderada")
+        st.write("Ajuste os pesos para criar o seu Ranking definitivo.")
         
         with st.expander("Defina seus Pesos de Decisão (0 a 100%)", expanded=True):
             c1, c2, c3, c4, c5 = st.columns(5)
@@ -551,7 +588,6 @@ if os.path.exists(arquivo_csv):
         df_sim = df_sim.sort_values(by='Nota_Final', ascending=False).reset_index(drop=True)
         df_sim.index = df_sim.index + 1
         df_sim['Rank'] = df_sim.index.astype(str) + "º"
-        
         df_sim['Veredito'] = pd.cut(df_sim['Nota_Final'], bins=[-1, 40, 75, 100], labels=["Neutro", "Estudo", "Compra Forte"])
         df_sim['Nota_Final'] = df_sim['Nota_Final'].apply(lambda x: f"{x:.1f}/100")
 
