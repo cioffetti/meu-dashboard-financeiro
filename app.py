@@ -241,9 +241,9 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         - Cobertura: {n_analistas} analistas acompanham este ativo. (Se a fonte for 'Sem Cobertura', informe o usuário que não há consenso claro).
         - Recomendação Média: {recomendacao}
         
-        **FUNDAMENTOS OPERACIONAIS:**
-        - Nota de Qualidade da Empresa (F-Score): {v_fscore} de 5 estrelas.
-        - ROIC Atual: {v_roic}%
+        **FUNDAMENTOS PARA O SEU CONTEXTO (NÃO CITE ESTES NÚMEROS DIRETAMENTE NO TEXTO):**
+        - Qualidade F-Score: {v_fscore} de 5 estrelas.
+        - Eficiência ROIC: {v_roic}%
             """
 
         data_hoje = datetime.now().strftime("%d/%m/%Y")
@@ -260,7 +260,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         
         REGRA DE FORMATAÇÃO E ESTILO (INEGOCIÁVEL):
         1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$'.
-        2. Na Matriz SWOT, você DEVE fornecer EXATAMENTE 3 tópicos para cada categoria.
+        2. Na Matriz SWOT, você DEVE fornecer EXATAMENTE 3 tópicos com marcadores (*) para cada categoria.
         3. Nas Notícias, pule uma linha entre a Manchete e o 'Resumo do Analista'.
         4. Avalie com extremo ceticismo se a empresa estiver 'Sem Cobertura' de mercado.
         
@@ -287,20 +287,31 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         * [Ameaça 2]
         * [Ameaça 3]
         
-        ## 2. Raio-X do Balanço (Foco Operacional)
-        REGRA: Avalie APENAS a qualidade da operação e a saúde (ROIC, Estrelas). É expressamente proibido citar fórmulas de valuation de gurus ou preços nesta seção.
-        * **✅ 3 Pontos Positivos:** [Descreva 3 destaques da operação de forma fluida]
-        * **⚠️ 3 Pontos de Atenção (Negativos):** [Descreva 3 preocupações operacionais/financeiras]
+        ## 2. Raio-X do Balanço (Foco Operacional - Referência: Último Balanço Divulgado do {ticker})
+        REGRA RIGOROSA E INEGOCIÁVEL: NÃO mencione as palavras "F-Score", "ROIC", "Valuation", nem cite as notas matemáticas. Leia os fundamentos operacionais implícitos da empresa no mundo real com base em seu conhecimento da economia atual e das notícias (fale sobre: endividamento, margem de lucro real, portfólio de produtos, vendas, gestão, concorrência).
+        
+        **Pontos Positivos:**
+        * ✅ [Fato positivo real 1 sobre a operação/negócio, NÃO USE FÓRMULAS]
+        * ✅ [Fato positivo real 2 sobre a operação/negócio, NÃO USE FÓRMULAS]
+        * ✅ [Fato positivo real 3 sobre a operação/negócio, NÃO USE FÓRMULAS]
+        
+        **Pontos de Atenção (Negativos):**
+        * ⚠️ [Fato negativo/risco real 1 sobre a operação/negócio, NÃO USE FÓRMULAS]
+        * ⚠️ [Fato negativo/risco real 2 sobre a operação/negócio, NÃO USE FÓRMULAS]
+        * ⚠️ [Fato negativo/risco real 3 sobre a operação/negócio, NÃO USE FÓRMULAS]
         
         ## 3. Termômetro de Notícias
-        Selecione as 5 manchetes reais mais positivas e as 5 mais negativas. Ordene-as da mais RECENTE para a mais ANTIGA.
+        Selecione as 3 manchetes reais mais relevantes.
         
-        **Notícias Positivas Recentes:**
+        **Notícias Recentes:**
         * **[Data] - [Fonte] - [Manchete]**
         
           **Resumo do Analista:** [Explicação fluida e separada da manchete].
         
-        **Notícias Negativas Recentes:**
+        * **[Data] - [Fonte] - [Manchete]**
+        
+          **Resumo do Analista:** [Explicação fluida e separada da manchete].
+          
         * **[Data] - [Fonte] - [Manchete]**
         
           **Resumo do Analista:** [Explicação fluida e separada da manchete].
@@ -309,7 +320,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         ## 4. O Quadrante de Decisão
         * 📈 **Análise Gráfica (Timing):** [Aprove ou rejeite a entrada com base no Suporte Técnico fornecido em relação ao preço atual].
         * 💰 **Valuation ({metodo_val}):** [Avalie o preço atual frente ao Cenário Base fornecido. O ativo embute prêmio de risco adequado ou negocia com margem?].
-        * 🏢 **Fundamentos:** [Escreva julgando a qualidade da operação com base nas Estrelas F-Score e no ROIC].
+        * 🏢 **Fundamentos:** [Escreva julgando a saúde e resiliência da empresa].
         * 🌡️ **Sentimento de Mercado:** [Defina em caixa alta OTIMISTA, NEUTRO ou PESSIMISTA, e escreva justificando com base nas notícias].
         
         ## 👑 Veredito Final
@@ -443,7 +454,6 @@ if os.path.exists(arquivo_csv):
 
         df_rank = df.copy()
 
-        # Mapeando a escolha do usuário
         if filtro_metodo == "Consenso Base (Média de Mercado)":
             col_alvo, col_margem = 'Val_Base', 'Margem_Base_%'
         elif filtro_metodo == "Consenso Pessimista (Conservador)":
@@ -457,7 +467,6 @@ if os.path.exists(arquivo_csv):
         elif filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)":
             col_alvo, col_margem = 'Pontuacao_Magica', 'Pontuacao_Magica'
 
-        # Filtra só quem tem dados válidos
         df_rank = df_rank[df_rank[col_alvo] > 0]
 
         def format_money(r, c):
@@ -474,7 +483,6 @@ if os.path.exists(arquivo_csv):
                 st.info("Nenhum ativo atende aos critérios nesta métrica.")
                 return
             
-            # Ordenação: A Fórmula Mágica precisa das menores notas no topo (ordem crescente). O resto é decrescente (maior margem).
             asc = True if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)" else False
             df_sub = df_sub.sort_values(by=col_margem, ascending=asc).reset_index(drop=True)
             
@@ -521,7 +529,7 @@ if os.path.exists(arquivo_csv):
             use_container_width=True, hide_index=True
         )
 
-    # --- ABA DE FUNDAMENTOS (AGORA COM AS COLUNAS MÁGICAS E OUTROS INDICADORES LIBERADOS) ---
+    # --- ABA DE FUNDAMENTOS ---
     with aba_fundamentos:
         st.header("Radar de Valor e Qualidade")
         
@@ -536,7 +544,6 @@ if os.path.exists(arquivo_csv):
         for col in ['Preco', 'Teto_Bazin', 'Justo_Graham']:
             df_fundo[col] = df_fundo.apply(lambda row: formatar_moeda(row, col), axis=1)
             
-        # Formatações Visuais para a Tabela Ficar Limpa
         df_fundo['Pontuacao_Magica'] = df_fundo['Pontuacao_Magica'].apply(lambda x: f"{x:.0f}" if pd.notnull(x) and x > 0 else "---")
         df_fundo['ROIC_%'] = df_fundo['ROIC_%'].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "---")
         df_fundo['ROE_%'] = df_fundo['ROE_%'].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "---")
