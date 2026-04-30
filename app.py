@@ -29,7 +29,7 @@ def formatar_br(valor, casas):
     texto = f"{valor:,.{casas}f}"
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- MOTOR DE COTAÇÕES EM LOTE (CARDS) ---
+# --- MOTOR DE COTAÇÕES EM LOTE (CARDS DA PÁGINA INICIAL) ---
 @st.cache_data(ttl=300)
 def buscar_dados_em_lote(lista_tickers, mercado="Macro"):
     if mercado == "BR" and BRAPI_KEY:
@@ -88,6 +88,7 @@ def injetar_precos_ao_vivo(df_base):
 # --- JANELAS DE GRÁFICOS E IA ---
 @st.dialog("📈 Histórico de Longo Prazo (5 Anos)", width="large")
 def abrir_historico_simples(ticker, nome):
+    st.write(f"Carregando histórico de 5 anos para **{nome}** ({ticker})...")
     try:
         dados = yf.Ticker(ticker).history(period="5y")
         if dados.empty: return st.error("Sem dados.")
@@ -126,6 +127,7 @@ def encontrar_suportes_resistencias(df):
 
 @st.dialog("🔬 Raio-X Técnico Profissional", width="large")
 def abrir_raio_x(ticker):
+    st.write(f"Buscando histórico de mercado para **{ticker}** e calculando algoritmos...")
     try:
         dados = yf.Ticker(ticker).history(period="5y")
         if dados.empty: return st.error("Sem dados.")
@@ -225,17 +227,18 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
     except Exception as e: st.error(f"Erro na IA: {e}")
 
 # --- LISTAS DE ATIVOS ---
-macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F", 2), "Petróleo": ("BZ=F", 2), "Bitcoin": ("BTC-USD", 2), "S&P 500": ("^GSPC", 2), "Ibovespa": ("^BVSP", 2), "Nasdaq": ("^IXIC", 2)}
+macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F", 2), "Petróleo (Brent)": ("BZ=F", 2), "Bitcoin": ("BTC-USD", 2), "S&P 500": ("^GSPC", 2), "Ibovespa": ("^BVSP", 2), "Nasdaq": ("^IXIC", 2)}
 acoes_br_list = ["AGRO3.SA", "AMOB3.SA", "BBAS3.SA", "BBDC3.SA", "BBSE3.SA", "BRSR6.SA", "B3SA3.SA", "CMIG3.SA", "CXSE3.SA", "EGIE3.SA", "EQTL3.SA", "EZTC3.SA", "FLRY3.SA", "GMAT3.SA", "ITSA4.SA", "KEPL3.SA", "KLBN3.SA", "LEVE3.SA", "PETR3.SA", "PRIO3.SA", "PSSA3.SA", "RAIZ4.SA", "RANI3.SA", "SAPR4.SA", "SBFG3.SA", "SMTO3.SA", "SOJA3.SA", "SUZB3.SA", "TAEE11.SA", "TTEN3.SA", "VAMO3.SA", "VIVT3.SA", "WEGE3.SA"]
 acoes_br_dict = {t.replace(".SA", ""): (t, 2) for t in acoes_br_list}
 acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "TSLA", "AAPL", "MSFT", "BAC", "WFC", "HD", "CVS", "DIS", "GPC", "VICI", "EQT"]
 acoes_usa_dict = {t: (t, 2) for t in acoes_usa_list}
 
-# --- CRIAÇÃO DAS ABAS (COM A NOVA ABA DE RANKINGS) ---
+# --- CRIAÇÃO DAS ABAS ---
 aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_rankings, aba_simulador, aba_analises = st.tabs([
     "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🏆 Rankings", "🎛️ Simulador", "🎯 Raio-X & IA"
 ])
 
+# --- FUNÇÃO DE RENDERIZAÇÃO DOS CARDS (TOTALMENTE RESTAURADA!) ---
 def renderizar_grid_cards(dicionario_ativos, mercado):
     lista_tickers = [info[0] for info in dicionario_ativos.values()]
     dados_lote, fonte = buscar_dados_em_lote(lista_tickers, mercado)
@@ -249,7 +252,8 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                 if ticker in dados_lote.columns:
                     precos = dados_lote[ticker].dropna()
                     if len(precos) >= 2:
-                        atual, ontem = float(precos.iloc[-1]), float(precos.iloc[-2])
+                        atual = float(precos.iloc[-1])
+                        ontem = float(precos.iloc[-2])
                         var = ((atual - ontem) / ontem) * 100
                         cor_linha = '#00FFCC' if var >= 0 else '#FF4B4B'
                         cor_preenchimento = 'rgba(0, 255, 204, 0.1)' if var >= 0 else 'rgba(255, 75, 75, 0.1)'
@@ -260,7 +264,10 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                                 fig = go.Figure(go.Scatter(x=precos.index, y=precos, mode='lines', line=dict(color=cor_linha, width=2), fill='tozeroy', fillcolor=cor_preenchimento))
                                 fig.update_layout(template="plotly_dark", height=80, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-                                if st.button("🔍", key=f"btn_hist_{ticker}_{mercado}"): abrir_historico_simples(ticker, nome_exibicao)
+                                # Botão largo restaurado e Legenda de hora/fonte de volta
+                                if st.button("🔍 Histórico", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
+                                    abrir_historico_simples(ticker, nome_exibicao)
+                                st.caption(f"⚡ {hora_consulta} | {fonte}")
 
 with aba_macro: renderizar_grid_cards(macro_dict, "Macro")
 with aba_br: renderizar_grid_cards(acoes_br_dict, "BR")
@@ -379,9 +386,8 @@ if os.path.exists(arquivo_csv):
 
             st.dataframe(df_sub[cols_to_show], use_container_width=True, hide_index=True)
 
-        # Exibe as tabelas empilhadas (melhor visualização no mobile e no desktop)
         mostrar_tabela_ranking(df_br, "🇧🇷 Top Oportunidades: Brasil")
-        st.write("") # Espaçamento
+        st.write("")
         mostrar_tabela_ranking(df_usa, "🇺🇸 Top Oportunidades: Wall Street")
 
     # --- ABA DE VALUATION PRO ---
