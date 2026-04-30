@@ -172,10 +172,24 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
     st.info(f"Coletando notícias reais e cruzando Pilares Institucionais para **{ticker}**...")
     
     try:
+        # TENTATIVA DE BUSCAR A DATA EXATA DO ÚLTIMO BALANÇO
+        data_balanco_str = "Recente"
+        try:
+            ativo_yf = yf.Ticker(ticker)
+            info = ativo_yf.info
+            if 'mostRecentQuarter' in info and info['mostRecentQuarter'] is not None:
+                data_balanco_str = datetime.fromtimestamp(info['mostRecentQuarter']).strftime('%m/%Y')
+            else:
+                q_fin = ativo_yf.quarterly_financials
+                if not q_fin.empty:
+                    data_balanco_str = q_fin.columns[0].strftime('%m/%Y')
+        except Exception:
+            pass
+
         preco_atual_ia, suporte_ia = "N/A", "N/A"
         moeda_ia = "R$" if ".SA" in ticker else "US$"
         try:
-            dados_hist = yf.Ticker(ticker).history(period="2y")
+            dados_hist = ativo_yf.history(period="2y")
             if not dados_hist.empty:
                 df_tec_ia = calcular_indicadores_tecnicos(dados_hist)
                 sup_ia, _ = encontrar_suportes_resistencias(df_tec_ia)
@@ -187,7 +201,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         texto_noticias = ""
         noticias_validas = []
         try:
-            noticias_yf = yf.Ticker(ticker).news
+            noticias_yf = ativo_yf.news
             if noticias_yf:
                 for n in noticias_yf:
                     if not n.get('title'): continue
@@ -287,7 +301,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         * [Ameaça 2]
         * [Ameaça 3]
         
-        ## 2. Raio-X do Balanço (Foco Operacional - Referência: Último Balanço Divulgado do {ticker})
+        ## 2. Raio-X do Balanço (Foco Operacional - Referência: Balanço de {data_balanco_str})
         REGRA RIGOROSA E INEGOCIÁVEL: NÃO mencione as palavras "F-Score", "ROIC", "Valuation", nem cite as notas matemáticas. Leia os fundamentos operacionais implícitos da empresa no mundo real com base em seu conhecimento da economia atual e das notícias (fale sobre: endividamento, margem de lucro real, portfólio de produtos, vendas, gestão, concorrência).
         
         **Pontos Positivos:**
