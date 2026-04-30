@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 import xml.etree.ElementTree as ET
 
-# --- CONFIGURAÇÃO DE SEGURANÇA HÍBRIDA ---
+# --- CONFIGURAÇÃO DE SEGURANÇA ---
 load_dotenv()
 BRAPI_KEY = st.secrets.get("BRAPI_KEY", os.getenv("BRAPI_KEY", ""))
 FINNHUB_KEY = st.secrets.get("FINNHUB_KEY", os.getenv("FINNHUB_KEY", ""))
@@ -29,10 +29,9 @@ def formatar_br(valor, casas):
     texto = f"{valor:,.{casas}f}"
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- MOTOR DE COTAÇÕES EM LOTE ---
+# --- MOTOR DE COTAÇÕES EM LOTE (CARDS TOP) ---
 @st.cache_data(ttl=300)
 def buscar_dados_em_lote(lista_tickers, mercado="Macro"):
-    hora_consulta = datetime.now().strftime("%H:%M")
     if mercado == "BR" and BRAPI_KEY:
         try:
             tickers_limpos = [t.replace(".SA", "") for t in lista_tickers]
@@ -50,7 +49,7 @@ def buscar_dados_em_lote(lista_tickers, mercado="Macro"):
         fechamentos = pd.DataFrame(dados['Close']) if isinstance(dados['Close'], pd.Series) else dados['Close']
         if len(lista_tickers) == 1: fechamentos.columns = lista_tickers
         return fechamentos, "Yahoo Finance"
-    except Exception as e:
+    except Exception:
         return None, "ERRO"
 
 @st.cache_data(ttl=3600)
@@ -68,23 +67,37 @@ def buscar_taxas_macro():
 
 taxa_selic_live, taxa_us10y_live = buscar_taxas_macro()
 
-# --- ATUALIZADOR DE PREÇOS AO VIVO (CORREÇÃO DO BUG DO PREÇO ESTÁTICO) ---
+# --- ATUALIZADOR DE PREÇOS AO VIVO ---
 @st.cache_data(ttl=300)
 def injetar_precos_ao_vivo(df_base):
     df_atualizado = df_base.copy()
-    tickers_busca = df_atualizado['Ticker'].astype(str).tolist()
+    tickers_yf = []
+    mapa_tickers = {}
+    
+    for t in df_atualizado['Ticker']:
+        t_clean = str(t).strip()
+        if t_clean[-1].isdigit() and not t_clean.endswith(".SA"):
+            t_yf = f"{t_clean}.SA"
+        else:
+            t_yf = t_clean
+        tickers_yf.append(t_yf)
+        mapa_tickers[t_yf] = t_clean
+
     try:
-        dados = yf.download(" ".join(tickers_busca), period="5d", progress=False)
+        dados = yf.download(" ".join(tickers_yf), period="5d", progress=False)
         if 'Close' in dados:
-            fechamentos = pd.DataFrame(dados['Close']) if isinstance(dados['Close'], pd.Series) else dados['Close']
-            for idx, row in df_atualizado.iterrows():
-                t = str(row['Ticker'])
-                if t in fechamentos.columns:
-                    serie_preco = fechamentos[t].dropna()
-                    if not serie_preco.empty:
-                        df_atualizado.at[idx, 'Preco'] = float(serie_preco.iloc[-1])
+            fechamentos = dados['Close']
+            if isinstance(fechamentos, pd.Series): 
+                fechamentos = pd.DataFrame({tickers_yf[0]: fechamentos})
+                
+            for t_yf in fechamentos.columns:
+                serie_preco = fechamentos[t_yf].dropna()
+                if not serie_preco.empty:
+                    preco_live = float(serie_preco.iloc[-1])
+                    t_original = mapa_tickers[t_yf]
+                    df_atualizado.loc[df_atualizado['Ticker'] == t_original, 'Preco'] = preco_live
     except Exception:
-        pass
+        pass 
     return df_atualizado
 
 # --- JANELA DE HISTÓRICO SIMPLES (5 ANOS) ---
@@ -110,7 +123,79 @@ def abrir_historico_simples(ticker, nome):
     except Exception as e:
         st.error(f"Erro ao carregar histórico: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (RAG INSTITUCIONAL HÍBRIDO) ---
+# --- FASE 3: MOTOR DE ANÁLISE TÉCNICA E GRÁFICOS ---
+def calcular_indicadores_tecnicos(df):
+    df['SMA_20'] = df['Close'].rolling(window=20).mean()
+    df['STD_20'] = df['Close'].rolling(window=20).std()
+    df['Bollinger_Upper'] = df['SMA_20'] + (df['STD_20'] * 2)
+    df['Bollinger_Lower'] = df['SMA_20'] - (df['STD_20'] * 2)
+    df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
+    df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = df['EMA_12'] - df['EMA_26']
+    df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).ewm(alpha=1/14, adjust=False).mean()
+    loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    return df
+
+def encontrar_suportes_resistencias(df):
+    suportes, resistencias = [], []
+    df_recente = df.tail(250)
+    for i in range(10, len(df_recente)-10):
+        if df_recente['Low'].iloc[i] == min(df_recente['Low'].iloc[i-10:i+10]): suportes.append(df_recente['Low'].iloc[i])
+        if df_recente['High'].iloc[i] == max(df_recente['High'].iloc[i-10:i+10]): resistencias.append(df_recente['High'].iloc[i])
+    preco_atual = df_recente['Close'].iloc[-1]
+    s_filt = sorted([s for s in suportes if s < preco_atual], reverse=True)[:3]
+    r_filt = sorted([r for r in resistencias if r > preco_atual])[:3]
+    return s_filt, r_filt
+
+@st.dialog("🔬 Raio-X Técnico Profissional", width="large")
+def abrir_raio_x(ticker):
+    st.write(f"Buscando histórico de mercado para **{ticker}** e calculando algoritmos...")
+    try:
+        dados = yf.Ticker(ticker).history(period="5y")
+        if dados.empty:
+            st.error("Dados não encontrados para este ativo no Yahoo Finance.")
+            return
+        df_tec = calcular_indicadores_tecnicos(dados)
+        suportes, resistencias = encontrar_suportes_resistencias(df_tec)
+        df_tec = df_tec.tail(250) 
+        
+        fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.6, 0.2, 0.2], vertical_spacing=0.05, specs=[[{"secondary_y": False}], [{"secondary_y": True}], [{"secondary_y": False}]])
+        fig.add_trace(go.Candlestick(x=df_tec.index, open=df_tec['Open'], high=df_tec['High'], low=df_tec['Low'], close=df_tec['Close'], name='Preço'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['Bollinger_Upper'], line=dict(color='rgba(255,255,255,0.2)', width=1), name='Banda Sup'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['Bollinger_Lower'], line=dict(color='rgba(255,255,255,0.2)', width=1), fill='tonexty', fillcolor='rgba(255,255,255,0.05)', name='Banda Inf'), row=1, col=1)
+        
+        for s in suportes: fig.add_hline(y=s, line_dash="dash", line_color="green", annotation_text=f"Sup: {s:.2f}", row=1, col=1)
+        for r in resistencias: fig.add_hline(y=r, line_dash="dash", line_color="red", annotation_text=f"Res: {r:.2f}", row=1, col=1)
+
+        cores_macd = ['#00FFCC' if val >= 0 else '#FF4B4B' for val in df_tec['MACD_Hist']]
+        fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['Volume'], marker_color='rgba(255,255,255,0.05)', name='Volume'), row=2, col=1, secondary_y=False)
+        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD'], line=dict(color='blue', width=1.5), name='MACD'), row=2, col=1, secondary_y=True)
+        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD_Signal'], line=dict(color='orange', width=1.5), name='Sinal'), row=2, col=1, secondary_y=True)
+        fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['MACD_Hist'], marker_color=cores_macd, name='Histograma'), row=2, col=1, secondary_y=True)
+
+        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['RSI'], line=dict(color='purple', width=2), name='RSI'), row=3, col=1)
+        fig.add_hline(y=70, line_dash="dot", line_color="red", row=3, col=1)
+        fig.add_hline(y=30, line_dash="dot", line_color="green", row=3, col=1)
+
+        fig.update_layout(height=700, template="plotly_dark", showlegend=False, margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, yaxis2=dict(showticklabels=False))
+        st.plotly_chart(fig, use_container_width=True)
+        
+        rsi_atual = df_tec['RSI'].iloc[-1]
+        preco_atual = df_tec['Close'].iloc[-1]
+        st.markdown(f"**RSI Atual:** {rsi_atual:.1f} (Abaixo de 30 = Sobrevendido / Acima de 70 = Sobrecomprado)")
+        if suportes:
+            distancia = ((preco_atual - suportes[0]) / preco_atual) * 100
+            st.markdown(f"**Distância para o Piso Seguro:** Faltam {distancia:.2f}% de queda para atingir o suporte gráfico mais próximo.")
+            moeda = "R$" if ".SA" in ticker else "US$"
+            st.success(f"🎯 **Preço Atrativo de Entrada (Suporte Mais Próximo):** {moeda} {suportes[0]:.2f}")
+    except Exception as e: st.error(f"Erro ao processar Raio-X: {e}")
+
+# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (RAG) ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker, dados_fundos=None):
     if not GOOGLE_API_KEY:
@@ -187,7 +272,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         - Alvo Pessimista: {moeda_ia} {v_pessimista if isinstance(v_pessimista, str) else f"{v_pessimista:.2f}"}
         - Alvo Base (Preço Justo Central): {moeda_ia} {v_base if isinstance(v_base, str) else f"{v_base:.2f}"}
         - Alvo Otimista: {moeda_ia} {v_otimista if isinstance(v_otimista, str) else f"{v_otimista:.2f}"}
-        - Cobertura: {n_analistas} analistas acompanham este ativo. (Se o número for 0, o valuation foi calculado matematicamente pelo terminal via DCF).
+        - Cobertura: {n_analistas} analistas acompanham este ativo. (Se a fonte for 'Sem Cobertura', informe o usuário que não há consenso de mercado claro).
         - Recomendação Média: {recomendacao}
         
         **FUNDAMENTOS OPERACIONAIS:**
@@ -211,7 +296,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$'.
         2. Na Matriz SWOT, você DEVE fornecer EXATAMENTE 3 tópicos para cada categoria.
         3. Nas Notícias, pule uma linha entre a Manchete e o 'Resumo do Analista'.
-        4. Cuidado com falsos otimismos se o "Grau de Cobertura" for muito baixo ou se o Valuation for "DCF Matemático (Terminal)".
+        4. Avalie com extremo ceticismo se a empresa estiver 'Sem Cobertura' de mercado.
         
         A sua resposta DEVE seguir estritamente a estrutura abaixo:
         
@@ -275,77 +360,6 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
     except Exception as e:
         st.error(f"Erro ao comunicar com a IA ou processar dados: {e}")
 
-# --- MOTOR DE ANÁLISE TÉCNICA (FASE 3) ---
-def calcular_indicadores_tecnicos(df):
-    df['SMA_20'] = df['Close'].rolling(window=20).mean()
-    df['STD_20'] = df['Close'].rolling(window=20).std()
-    df['Bollinger_Upper'] = df['SMA_20'] + (df['STD_20'] * 2)
-    df['Bollinger_Lower'] = df['SMA_20'] - (df['STD_20'] * 2)
-    df['EMA_12'] = df['Close'].ewm(span=12, adjust=False).mean()
-    df['EMA_26'] = df['Close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = df['EMA_12'] - df['EMA_26']
-    df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-    df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).ewm(alpha=1/14, adjust=False).mean()
-    loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
-    rs = gain / loss
-    df['RSI'] = 100 - (100 / (1 + rs))
-    return df
-
-def encontrar_suportes_resistencias(df):
-    suportes, resistencias = [], []
-    df_recente = df.tail(250)
-    for i in range(10, len(df_recente)-10):
-        if df_recente['Low'].iloc[i] == min(df_recente['Low'].iloc[i-10:i+10]): suportes.append(df_recente['Low'].iloc[i])
-        if df_recente['High'].iloc[i] == max(df_recente['High'].iloc[i-10:i+10]): resistencias.append(df_recente['High'].iloc[i])
-    preco_atual = df_recente['Close'].iloc[-1]
-    s_filt = sorted([s for s in suportes if s < preco_atual], reverse=True)[:3]
-    r_filt = sorted([r for r in resistencias if r > preco_atual])[:3]
-    return s_filt, r_filt
-
-@st.dialog("🔬 Raio-X Técnico Profissional", width="large")
-def abrir_raio_x(ticker):
-    st.write(f"Buscando histórico de mercado para **{ticker}** e calculando algoritmos...")
-    try:
-        dados = yf.Ticker(ticker).history(period="5y")
-        if dados.empty:
-            st.error("Dados não encontrados para este ativo no Yahoo Finance.")
-            return
-        df_tec = calcular_indicadores_tecnicos(dados)
-        suportes, resistencias = encontrar_suportes_resistencias(df_tec)
-        df_tec = df_tec.tail(250) 
-        
-        fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.6, 0.2, 0.2], vertical_spacing=0.05, specs=[[{"secondary_y": False}], [{"secondary_y": True}], [{"secondary_y": False}]])
-        fig.add_trace(go.Candlestick(x=df_tec.index, open=df_tec['Open'], high=df_tec['High'], low=df_tec['Low'], close=df_tec['Close'], name='Preço'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['Bollinger_Upper'], line=dict(color='rgba(255,255,255,0.2)', width=1), name='Banda Sup'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['Bollinger_Lower'], line=dict(color='rgba(255,255,255,0.2)', width=1), fill='tonexty', fillcolor='rgba(255,255,255,0.05)', name='Banda Inf'), row=1, col=1)
-        
-        for s in suportes: fig.add_hline(y=s, line_dash="dash", line_color="green", annotation_text=f"Sup: {s:.2f}", row=1, col=1)
-        for r in resistencias: fig.add_hline(y=r, line_dash="dash", line_color="red", annotation_text=f"Res: {r:.2f}", row=1, col=1)
-
-        cores_macd = ['#00FFCC' if val >= 0 else '#FF4B4B' for val in df_tec['MACD_Hist']]
-        fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['Volume'], marker_color='rgba(255,255,255,0.05)', name='Volume'), row=2, col=1, secondary_y=False)
-        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD'], line=dict(color='blue', width=1.5), name='MACD'), row=2, col=1, secondary_y=True)
-        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['MACD_Signal'], line=dict(color='orange', width=1.5), name='Sinal'), row=2, col=1, secondary_y=True)
-        fig.add_trace(go.Bar(x=df_tec.index, y=df_tec['MACD_Hist'], marker_color=cores_macd, name='Histograma'), row=2, col=1, secondary_y=True)
-
-        fig.add_trace(go.Scatter(x=df_tec.index, y=df_tec['RSI'], line=dict(color='purple', width=2), name='RSI'), row=3, col=1)
-        fig.add_hline(y=70, line_dash="dot", line_color="red", row=3, col=1)
-        fig.add_hline(y=30, line_dash="dot", line_color="green", row=3, col=1)
-
-        fig.update_layout(height=700, template="plotly_dark", showlegend=False, margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False, yaxis2=dict(showticklabels=False))
-        st.plotly_chart(fig, use_container_width=True)
-        
-        rsi_atual = df_tec['RSI'].iloc[-1]
-        preco_atual = df_tec['Close'].iloc[-1]
-        st.markdown(f"**RSI Atual:** {rsi_atual:.1f} (Abaixo de 30 = Sobrevendido / Acima de 70 = Sobrecomprado)")
-        if suportes:
-            distancia = ((preco_atual - suportes[0]) / preco_atual) * 100
-            st.markdown(f"**Distância para o Piso Seguro:** Faltam {distancia:.2f}% de queda para atingir o suporte gráfico mais próximo.")
-            moeda = "R$" if ".SA" in ticker else "US$"
-            st.success(f"🎯 **Preço Atrativo de Entrada (Suporte Mais Próximo):** {moeda} {suportes[0]:.2f}")
-    except Exception as e: st.error(f"Erro ao processar Raio-X: {e}")
 
 # --- LISTAS DE ATIVOS ---
 macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F", 2), "Petróleo (Brent)": ("BZ=F", 2), "Bitcoin": ("BTC-USD", 2), "Ethereum": ("ETH-USD", 2), "Solana": ("SOL-USD", 2), "Ibovespa": ("^BVSP", 2), "S&P 500": ("^GSPC", 2), "Dow Jones": ("^DJI", 2), "Nasdaq": ("^IXIC", 2), "DAX (Alem)": ("^GDAXI", 2), "Nikkei (Jap)": ("^N225", 2), "Shanghai (Chi)": ("000001.SS", 2), "Shenzhen (Chi)": ("399001.SZ", 2), "Merval (Arg)": ("^MERV", 2)}
@@ -372,8 +386,7 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                 if ticker in dados_lote.columns:
                     precos = dados_lote[ticker].dropna()
                     if len(precos) >= 2:
-                        atual = float(precos.iloc[-1])
-                        ontem = float(precos.iloc[-2])
+                        atual, ontem = float(precos.iloc[-1]), float(precos.iloc[-2])
                         var = ((atual - ontem) / ontem) * 100
                         cor_linha = '#00FFCC' if var >= 0 else '#FF4B4B'
                         cor_preenchimento = 'rgba(0, 255, 204, 0.1)' if var >= 0 else 'rgba(255, 75, 75, 0.1)'
@@ -392,7 +405,7 @@ with aba_macro: renderizar_grid_cards(macro_dict, "Macro")
 with aba_br: renderizar_grid_cards(acoes_br_dict, "BR")
 with aba_usa: renderizar_grid_cards(acoes_usa_dict, "USA")
 
-# --- CARREGAMENTO E MESCLAGEM DOS DADOS (O MOTOR HÍBRIDO) ---
+# --- MOTOR DE DADOS CENTRAL ---
 arquivo_csv = "base_dados.csv"
 arquivo_cofre = "cofre_consenso.csv"
 dados_base_carregados = False
@@ -400,15 +413,14 @@ dados_base_carregados = False
 if os.path.exists(arquivo_csv):
     df = pd.read_csv(arquivo_csv, sep=";")
     
-    # 🔴 AQUI ESTÁ A CORREÇÃO DO BUG: INJETA O PREÇO AO VIVO DA TELA HOJE 🔴
+    # Injeta Preços Fresquinhos para atualizar tabelas
     df = injetar_precos_ao_vivo(df)
     dados_base_carregados = True
     
-    # Cálculos Clássicos dos Gurus (Agora usando o preço fresquinho)
+    # Fundamentos (usando o preço atualizado da tela)
     df['Dividendo_Pago'] = df['Preco'] * (df['Div_Yield_%'] / 100)
     df['Teto_Bazin'] = df['Dividendo_Pago'] / 0.06
     df['Margem_Bazin_%'] = np.where(df['Teto_Bazin'] > 0, ((df['Teto_Bazin'] - df['Preco']) / df['Preco']) * 100, 0)
-    
     df['Justo_Graham'] = np.where((df['LPA'] > 0) & (df['VPA'] > 0), np.sqrt(22.5 * df['LPA'] * df['VPA']), 0)
     df['Margem_Graham_%'] = np.where(df['Justo_Graham'] > 0, ((df['Justo_Graham'] - df['Preco']) / df['Preco']) * 100, 0)
 
@@ -425,132 +437,56 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- LENDO O COFRE DO ROBÔ ---
+    # --- SOBERANIA DO COFRE DE CONSENSO ---
     if os.path.exists(arquivo_cofre):
         df_cofre = pd.read_csv(arquivo_cofre, sep=";")
         df_cofre = df_cofre.drop_duplicates(subset=['Ticker'], keep='last')
         df = pd.merge(df, df_cofre[['Ticker', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas', 'Recomendacao']], on='Ticker', how='left')
     
+    # Preenche com 0 quem não tem consenso
     for col in ['Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas']:
         if col not in df.columns: df[col] = 0
         df[col] = df[col].fillna(0)
+    
     if 'Recomendacao' not in df.columns: df['Recomendacao'] = 'N/A'
-
-    # --- O PLANO B: DCF MATEMÁTICO SETORIAL (V2) ---
-    selic_projetada = min(taxa_selic_live, 9.5) 
     
-    def definir_premissas_setoriais(ticker, tx_livre, tx_usa, cresc_hist):
-        ticker_str = str(ticker).upper()
-        is_br = ".SA" in ticker_str or ticker_str.endswith(("3", "4", "5", "6", "11"))
-        risk_free = (selic_projetada / 100) if is_br else (tx_usa / 100)
-        cresc = max(cresc_hist / 100, 0) if pd.notnull(cresc_hist) else 0.02
-        
-        if any(x in ticker_str for x in ['CMIG', 'TAEE', 'EGIE', 'EQTL', 'SAPR', 'TRPL', 'SBSP']):
-            premio_risco, g_curto, g_perp = 0.04, min(cresc, 0.04), 0.03
-        elif any(x in ticker_str for x in ['BBDC', 'BBAS', 'ITUB', 'SANB', 'BBSE', 'CXSE', 'PSSA', 'BRSR']):
-            premio_risco, g_curto, g_perp = 0.05, min(cresc, 0.05), 0.025
-        elif any(x in ticker_str for x in ['PETR', 'PRIO', 'VALE', 'KLBN', 'SUZB', 'AGRO', 'CSNA']):
-            premio_risco, g_curto, g_perp = 0.065, min(cresc, 0.03), 0.015
-        elif not is_br:
-            premio_risco, g_curto, g_perp = 0.05, min(cresc, 0.10), 0.035
-        else:
-            premio_risco, g_curto, g_perp = 0.06, min(cresc, 0.08), 0.025
-            
-        ke = risk_free + premio_risco
-        return ke, g_curto, g_perp
-
-    def calcular_dcf_setorial(lpa, preco_atual, ke_ajustado, g_curto, g_perp, cenario="Base"):
-        if lpa <= 0 or pd.isna(lpa): return 0
-        if cenario == "Pessimista":
-            ke_ajustado += 0.01
-            g_curto = max(g_curto - 0.02, 0)
-            g_perp = max(g_perp - 0.01, 0)
-        elif cenario == "Otimista":
-            ke_ajustado = max(ke_ajustado - 0.01, 0.06)
-            g_curto += 0.02
-            g_perp = min(g_perp + 0.01, 0.04)
-
-        pv_estagio1 = 0
-        lucro_temp = lpa
-        for i in range(1, 6):
-            lucro_temp *= (1 + g_curto)
-            pv_estagio1 += lucro_temp / ((1 + ke_ajustado) ** i)
-            
-        if ke_ajustado <= g_perp: return 0 
-            
-        valor_terminal = (lucro_temp * (1 + g_perp)) / (ke_ajustado - g_perp)
-        pv_terminal = valor_terminal / ((1 + ke_ajustado) ** 5)
-        valor_intrinseco = pv_estagio1 + pv_terminal
-        
-        if preco_atual > 0 and valor_intrinseco > preco_atual * 1.3:
-            teto_livre = preco_atual * 1.3
-            excesso = valor_intrinseco - teto_livre
-            valor_intrinseco = teto_livre + (excesso * 0.20) 
-            
-        return valor_intrinseco
-
-    # --- A MESCLAGEM HÍBRIDA FINAL (REGRAS CLARAS DE SOBERANIA DO COFRE) ---
-    v_pess_final, v_base_final, v_otim_final, metodo_final = [], [], [], []
-    
-    for index, row in df.iterrows():
-        # LÓGICA DE SOBERANIA: Se tem consenso no cofre, PULA A MATEMÁTICA
-        if row['Val_Base'] > 0:
-            v_pess_final.append(row['Val_Pessimista'])
-            v_base_final.append(row['Val_Base'])
-            v_otim_final.append(row['Val_Otimista'])
-            metodo_final.append("Consenso Analistas")
-        # Se NÃO TEM no cofre, aí sim o Terminal calcula
-        else:
-            ke, g_curto, g_perp = definir_premissas_setoriais(row['Ticker'], taxa_selic_live, taxa_us10y_live, row['Crescimento_5a_%'])
-            pess = calcular_dcf_setorial(row['LPA'], row['Preco'], ke, g_curto, g_perp, "Pessimista")
-            base = calcular_dcf_setorial(row['LPA'], row['Preco'], ke, g_curto, g_perp, "Base")
-            otim = calcular_dcf_setorial(row['LPA'], row['Preco'], ke, g_curto, g_perp, "Otimista")
-            
-            v_pess_final.append(pess)
-            v_base_final.append(base)
-            v_otim_final.append(otim)
-            metodo_final.append("DCF Matemático (Terminal)")
-
-    df['Val_Pessimista'] = v_pess_final
-    df['Val_Base'] = v_base_final
-    df['Val_Otimista'] = v_otim_final
-    df['Metodo_Valuation'] = metodo_final
+    # Classificação purista (Wall Street / Faria Lima)
+    df['Metodo_Valuation'] = np.where(df['Val_Base'] > 0, "Consenso Analistas", "Sem Cobertura")
     df['Justo_Mercado'] = df['Val_Base']
 
-    # --- RENDERIZAÇÃO: ABA DE VALUATION PRO ---
+    # --- ABA DE VALUATION PRO ---
     with aba_valuation:
-        st.header("🧮 Valuation Institucional (Painel Híbrido)")
-        st.write("Agregação do Consenso de Mercado. O algoritmo DCF interno só é acionado para ações que não possuem cobertura dos analistas.")
+        st.header("🧮 Valuation Institucional (Puro Consenso)")
+        st.write("Visão estrita de Faria Lima e Wall Street. Ativos sem cobertura de mercado não terão valores inventados.")
         
         df_cenarios = df.copy()
-        df_cenarios = df_cenarios[['Ticker', 'Preco', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas', 'Recomendacao', 'Metodo_Valuation', 'Origem']]
-        df_cenarios = df_cenarios[df_cenarios['Val_Base'] > 0]
-        
-        df_cenarios['Margem_Base'] = ((df_cenarios['Val_Base'] - df_cenarios['Preco']) / df_cenarios['Preco']) * 100
-        df_cenarios = df_cenarios.sort_values(by='Margem_Base', ascending=False)
         
         def formata_val(linha, col):
-            if pd.isna(linha[col]): return "N/A"
+            if pd.isna(linha[col]) or linha[col] <= 0: return "---"
             simb = "R$" if "Fundamentus" in str(linha['Origem']) else "$"
             return f"{simb} {linha[col]:.2f}"
             
-        df_cenarios['Preco Atual'] = df_cenarios.apply(lambda r: formata_val(r, 'Preco'), axis=1)
+        df_cenarios['Preco Atual'] = df_cenarios.apply(lambda r: f"{'R$' if 'Fundamentus' in str(r['Origem']) else '$'} {r['Preco']:.2f}", axis=1)
         df_cenarios['🔴 Alvo Pessimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Pessimista'), axis=1)
         df_cenarios['🟡 Alvo Base'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Base'), axis=1)
         df_cenarios['🟢 Alvo Otimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Otimista'), axis=1)
+        
+        # Ordena colocando quem tem margem primeiro, e quem não tem cobertura no final
+        df_cenarios['Margem_Base'] = np.where(df_cenarios['Val_Base'] > 0, ((df_cenarios['Val_Base'] - df_cenarios['Preco']) / df_cenarios['Preco']) * 100, -999)
+        df_cenarios = df_cenarios.sort_values(by='Margem_Base', ascending=False)
         
         st.dataframe(
             df_cenarios[['Ticker', 'Preco Atual', '🔴 Alvo Pessimista', '🟡 Alvo Base', '🟢 Alvo Otimista', 'Num_Analistas', 'Recomendacao', 'Metodo_Valuation']], 
             use_container_width=True, hide_index=True
         )
 
-    # --- RENDERIZAÇÃO: ABA DE FUNDAMENTOS ---
+    # --- ABA DE FUNDAMENTOS ---
     with aba_fundamentos:
         st.header("Radar de Valor e Qualidade")
         df_fundo = df.copy().sort_values(by='F_Score', ascending=False)
         def formatar_moeda(linha, nome_coluna):
             valor = linha[nome_coluna]
-            if pd.isna(valor) or valor == 0: return "N/A"
+            if pd.isna(valor) or valor <= 0: return "---"
             simbolo = "R$" if "Fundamentus" in str(linha['Origem']) else "$"
             return f"{simbolo} {valor:.2f}"
 
@@ -559,10 +495,10 @@ if os.path.exists(arquivo_csv):
             
         st.dataframe(df_fundo[['Ticker', 'Preco', 'Saude_Visual', 'ROIC_%', 'Teto_Bazin', 'Justo_Graham']], use_container_width=True, hide_index=True)
 
-    # --- RENDERIZAÇÃO: ABA SIMULADOR ---
+    # --- ABA SIMULADOR ---
     with aba_simulador:
         st.header("🎛️ Laboratório de Estratégia Ponderada")
-        st.write("Ajuste os pesos para criar o seu Ranking definitivo.")
+        st.write("Ajuste os pesos. Ativos sem cobertura de mercado receberão nota 0 no quesito 'Consenso'.")
         
         with st.expander("Defina seus Pesos de Decisão (0 a 100%)", expanded=True):
             c1, c2, c3, c4, c5 = st.columns(5)
@@ -570,7 +506,7 @@ if os.path.exists(arquivo_csv):
             w_bazin = c2.slider("Renda (Bazin)", 0, 100, 20)
             w_magic = c3.slider("Qualidade (Magic)", 0, 100, 20)
             w_fscore = c4.slider("Saúde (F-Score)", 0, 100, 20)
-            w_dcf = c5.slider("Mercado (Consenso/DCF)", 0, 100, 20)
+            w_dcf = c5.slider("Mercado (Consenso)", 0, 100, 20)
 
         df_sim = df.copy()
         df_sim['Margem_Mercado_%'] = np.where(df_sim['Val_Base'] > 0, ((df_sim['Val_Base'] - df_sim['Preco']) / df_sim['Preco']) * 100, 0)
@@ -590,20 +526,14 @@ if os.path.exists(arquivo_csv):
         df_sim['Rank'] = df_sim.index.astype(str) + "º"
         df_sim['Veredito'] = pd.cut(df_sim['Nota_Final'], bins=[-1, 40, 75, 100], labels=["Neutro", "Estudo", "Compra Forte"])
         df_sim['Nota_Final'] = df_sim['Nota_Final'].apply(lambda x: f"{x:.1f}/100")
-
-        def fmt_sim_moeda(linha):
-            simb = "R$" if "Fundamentus" in str(linha['Origem']) else "$"
-            return f"{simb} {linha['Preco']:.2f}"
         
-        df_sim['Preco_Atual'] = df_sim.apply(fmt_sim_moeda, axis=1)
+        df_sim['Preco_Atual'] = df_sim.apply(lambda r: f"{'R$' if 'Fundamentus' in str(r['Origem']) else '$'} {r['Preco']:.2f}", axis=1)
         st.dataframe(df_sim[['Rank', 'Ticker', 'Preco_Atual', 'Nota_Final', 'Veredito', 'Saude_Visual']], use_container_width=True, hide_index=True)
 
 else: 
-    with aba_valuation: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
-    with aba_fundamentos: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
-    with aba_simulador: st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
+    st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
 
-# --- ABA DE ANÁLISES (TÉCNICA + IA NO RAG DE CONSENSO) ---
+# --- ABA DE ANÁLISES (TÉCNICA + IA) ---
 with aba_analises:
     st.header("🎯 Central de Inteligência Profissional")
     st.write("Selecione um ativo para realizar análises cruzadas sob demanda.")
