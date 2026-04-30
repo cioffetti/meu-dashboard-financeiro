@@ -450,7 +450,7 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- ABA DE RANKINGS DINÂMICOS (SCREENER) ---
+    # --- ABA DE RANKINGS DINÂMICOS (SCREENER COM HTML/CSS CUSTOMIZADO) ---
     with aba_rankings:
         st.header("🏆 Rankings de Pechinchas (Screener)")
         st.write("Ações separadas por mercado para garantir comparabilidade justa de risco e prêmio.")
@@ -489,7 +489,7 @@ if os.path.exists(arquivo_csv):
         df_br = df_rank[df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
         df_usa = df_rank[~df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
 
-        # Renderizador de Tabela HTML/CSS Personalizada
+        # Renderizador de Tabela HTML/CSS Personalizada com Cores Condicionais
         def mostrar_tabela_ranking(df_sub, titulo):
             st.subheader(titulo)
             if df_sub.empty:
@@ -510,7 +510,8 @@ if os.path.exists(arquivo_csv):
             .tabela-ativo { color: #3498db; font-weight: bold; text-decoration: none; }
             .badge-ia { border: 1px solid #f1c40f; color: #f1c40f; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; background: rgba(241, 196, 15, 0.05); }
             .val-positivo { color: #00cc66; font-weight: bold; }
-            .val-neutro { color: #bdc3c7; }
+            .val-negativo { color: #ff4b4b; font-weight: bold; }
+            .val-neutro { color: #bdc3c7; font-weight: bold; }
             </style>
             <table class="tabela-pro">
               <thead>
@@ -530,15 +531,23 @@ if os.path.exists(arquivo_csv):
             for idx, row in df_sub.iterrows():
                 preco_atual = format_money(row, 'Preco')
                 
+                # LÓGICA DE CORES INJETADA AQUI
                 if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)":
                     preco_alvo = "---"
                     upside_text = f"Score: {row['Pontuacao_Magica']:.0f}"
-                    upside_class = "val-positivo"
+                    upside_class = "val-positivo" # Score baixo é bom, mantém verde pro destaque
                 else:
                     preco_alvo = format_money(row, col_alvo)
                     upside_val = row[col_margem]
-                    upside_text = f"+{upside_val:.2f}%" if upside_val > 0 else f"{upside_val:.2f}%"
-                    upside_class = "val-positivo" if upside_val > 0 else "val-neutro"
+                    if upside_val > 0:
+                        upside_text = f"+{upside_val:.2f}%"
+                        upside_class = "val-positivo"
+                    elif upside_val < 0:
+                        upside_text = f"{upside_val:.2f}%"
+                        upside_class = "val-negativo"
+                    else:
+                        upside_text = "0.00%"
+                        upside_class = "val-neutro"
 
                 html += f"""
                 <tr>
