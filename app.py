@@ -248,7 +248,6 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
 
         data_hoje = datetime.now().strftime("%d/%m/%Y")
 
-        # O PROMPT ORIGINAL E DETALHADO ESTÁ DE VOLTA AQUI:
         prompt = f"""
         Hoje é dia {data_hoje}. Atue como o Analista Chefe do comitê de investimentos. 
         Analise o ativo {ticker}.
@@ -327,7 +326,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
     except Exception as e:
         st.error(f"Erro ao comunicar com a IA ou processar dados: {e}")
 
-# --- LISTAS DE ATIVOS (100% COMPLETAS - NENHUM ATIVO APAGADO) ---
+# --- LISTAS DE ATIVOS ---
 macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F", 2), "Petróleo (Brent)": ("BZ=F", 2), "Bitcoin": ("BTC-USD", 2), "Ethereum": ("ETH-USD", 2), "Solana": ("SOL-USD", 2), "Ibovespa": ("^BVSP", 2), "S&P 500": ("^GSPC", 2), "Dow Jones": ("^DJI", 2), "Nasdaq": ("^IXIC", 2), "DAX (Alem)": ("^GDAXI", 2), "Nikkei (Jap)": ("^N225", 2), "Shanghai (Chi)": ("000001.SS", 2), "Shenzhen (Chi)": ("399001.SZ", 2), "Merval (Arg)": ("^MERV", 2)}
 
 acoes_br_list = ["AGRO3.SA", "AMOB3.SA", "BBAS3.SA", "BBDC3.SA", "BBSE3.SA", "BRSR6.SA", "B3SA3.SA", "CMIG3.SA", "CXSE3.SA", "EGIE3.SA", "EQTL3.SA", "EZTC3.SA", "FLRY3.SA", "GMAT3.SA", "ITSA4.SA", "KEPL3.SA", "KLBN3.SA", "LEVE3.SA", "PETR3.SA", "PRIO3.SA", "PSSA3.SA", "RAIZ4.SA", "RANI3.SA", "SAPR4.SA", "SBFG3.SA", "SMTO3.SA", "SOJA3.SA", "SUZB3.SA", "TAEE11.SA", "TTEN3.SA", "VAMO3.SA", "VIVT3.SA", "WEGE3.SA", "ETHE11.SA", "GOLD11.SA", "QSOL11.SA", "QBTC11.SA"]
@@ -341,7 +340,7 @@ aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_rankings, aba_si
     "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🏆 Rankings", "🎛️ Simulador", "🎯 Raio-X & IA"
 ])
 
-# --- RENDERIZAÇÃO DOS CARDS (INTERFACE ORIGINAL RESTAURADA: BOTÃO LARGO + LEGENDA) ---
+# --- RENDERIZAÇÃO DOS CARDS ---
 def renderizar_grid_cards(dicionario_ativos, mercado):
     lista_tickers = [info[0] for info in dicionario_ativos.values()]
     dados_lote, fonte = buscar_dados_em_lote(lista_tickers, mercado)
@@ -367,7 +366,6 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                                 fig = go.Figure(go.Scatter(x=precos.index, y=precos, mode='lines', line=dict(color=cor_linha, width=2), fill='tozeroy', fillcolor=cor_preenchimento))
                                 fig.update_layout(template="plotly_dark", height=80, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-                                # BOTÃO E LEGENDA TOTALMENTE RESTAURADOS COMO O ORIGINAL:
                                 if st.button("🔍 Histórico", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
                                     abrir_historico_simples(ticker, nome_exibicao)
                                 st.caption(f"⚡ {hora_consulta} | {fonte}")
@@ -428,7 +426,7 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- ABA DE RANKINGS DINÂMICOS (SCREENER SEPARADO POR PAÍS) ---
+    # --- ABA DE RANKINGS DINÂMICOS (SCREENER) ---
     with aba_rankings:
         st.header("🏆 Rankings de Pechinchas (Screener)")
         st.write("Ações separadas por mercado para garantir comparabilidade justa de risco e prêmio.")
@@ -439,11 +437,13 @@ if os.path.exists(arquivo_csv):
              "Consenso Pessimista (Conservador)",
              "Consenso Otimista (Cenário Azul)",
              "Teto de Bazin (Foco em Renda/Dividendos)",
-             "Justo de Graham (Foco em Patrimônio/Lucro)"]
+             "Justo de Graham (Foco em Patrimônio/Lucro)",
+             "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)"]
         )
 
         df_rank = df.copy()
 
+        # Mapeando a escolha do usuário
         if filtro_metodo == "Consenso Base (Média de Mercado)":
             col_alvo, col_margem = 'Val_Base', 'Margem_Base_%'
         elif filtro_metodo == "Consenso Pessimista (Conservador)":
@@ -454,7 +454,10 @@ if os.path.exists(arquivo_csv):
             col_alvo, col_margem = 'Teto_Bazin', 'Margem_Bazin_%'
         elif filtro_metodo == "Justo de Graham (Foco em Patrimônio/Lucro)":
             col_alvo, col_margem = 'Justo_Graham', 'Margem_Graham_%'
+        elif filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)":
+            col_alvo, col_margem = 'Pontuacao_Magica', 'Pontuacao_Magica'
 
+        # Filtra só quem tem dados válidos
         df_rank = df_rank[df_rank[col_alvo] > 0]
 
         def format_money(r, c):
@@ -471,13 +474,21 @@ if os.path.exists(arquivo_csv):
                 st.info("Nenhum ativo atende aos critérios nesta métrica.")
                 return
             
-            df_sub = df_sub.sort_values(by=col_margem, ascending=False).reset_index(drop=True)
+            # Ordenação: A Fórmula Mágica precisa das menores notas no topo (ordem crescente). O resto é decrescente (maior margem).
+            asc = True if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)" else False
+            df_sub = df_sub.sort_values(by=col_margem, ascending=asc).reset_index(drop=True)
+            
             df_sub.index = df_sub.index + 1
             df_sub['Posição'] = df_sub.index.astype(str) + "º"
             
             df_sub['Preço Atual'] = df_sub.apply(lambda r: format_money(r, 'Preco'), axis=1)
-            df_sub['Preço Alvo'] = df_sub.apply(lambda r: format_money(r, col_alvo), axis=1)
-            df_sub['Upside / Margem'] = df_sub[col_margem].apply(lambda x: f"+{x:.2f}%" if x > 0 else f"{x:.2f}%")
+            
+            if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)":
+                df_sub['Preço Alvo'] = "N/A (Ranking Baseado em Score)"
+                df_sub['Upside / Margem'] = df_sub['Pontuacao_Magica'].apply(lambda x: f"Score: {x:.0f}")
+            else:
+                df_sub['Preço Alvo'] = df_sub.apply(lambda r: format_money(r, col_alvo), axis=1)
+                df_sub['Upside / Margem'] = df_sub[col_margem].apply(lambda x: f"+{x:.2f}%" if x > 0 else f"{x:.2f}%")
 
             cols_to_show = ['Posição', 'Ticker', 'Preço Atual', 'Preço Alvo', 'Upside / Margem', 'Saude_Visual']
             if "Consenso" in filtro_metodo:
@@ -510,10 +521,12 @@ if os.path.exists(arquivo_csv):
             use_container_width=True, hide_index=True
         )
 
-    # --- ABA DE FUNDAMENTOS ---
+    # --- ABA DE FUNDAMENTOS (AGORA COM AS COLUNAS MÁGICAS E OUTROS INDICADORES LIBERADOS) ---
     with aba_fundamentos:
         st.header("Radar de Valor e Qualidade")
-        df_fundo = df.copy().sort_values(by='F_Score', ascending=False)
+        
+        df_fundo = df.copy().sort_values(by='Pontuacao_Magica', ascending=True)
+        
         def formatar_moeda(linha, nome_coluna):
             valor = linha[nome_coluna]
             if pd.isna(valor) or valor <= 0: return "---"
@@ -523,7 +536,21 @@ if os.path.exists(arquivo_csv):
         for col in ['Preco', 'Teto_Bazin', 'Justo_Graham']:
             df_fundo[col] = df_fundo.apply(lambda row: formatar_moeda(row, col), axis=1)
             
-        st.dataframe(df_fundo[['Ticker', 'Preco', 'Saude_Visual', 'ROIC_%', 'Teto_Bazin', 'Justo_Graham']], use_container_width=True, hide_index=True)
+        # Formatações Visuais para a Tabela Ficar Limpa
+        df_fundo['Pontuacao_Magica'] = df_fundo['Pontuacao_Magica'].apply(lambda x: f"{x:.0f}" if pd.notnull(x) and x > 0 else "---")
+        df_fundo['ROIC_%'] = df_fundo['ROIC_%'].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "---")
+        df_fundo['ROE_%'] = df_fundo['ROE_%'].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "---")
+        df_fundo['EV_EBIT'] = df_fundo['EV_EBIT'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) and x > 0 else "---")
+        df_fundo['Div_Yield_%'] = df_fundo['Div_Yield_%'].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "---")
+        df_fundo['Crescimento_5a_%'] = df_fundo['Crescimento_5a_%'].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "---")
+
+        colunas_para_exibir = [
+            'Ticker', 'Preco', 'Saude_Visual', 'F_Score', 'Pontuacao_Magica', 
+            'ROIC_%', 'ROE_%', 'EV_EBIT', 'Div_Yield_%', 'Crescimento_5a_%', 
+            'Teto_Bazin', 'Justo_Graham'
+        ]
+        
+        st.dataframe(df_fundo[colunas_para_exibir], use_container_width=True, hide_index=True)
 
     # --- ABA SIMULADOR ---
     with aba_simulador:
