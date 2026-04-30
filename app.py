@@ -29,6 +29,17 @@ def formatar_br(valor, casas):
     texto = f"{valor:,.{casas}f}"
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
+# --- ESTILO CSS GLOBAL PARA TABELAS ---
+ESTILO_TABELA_PRO = """
+<style>
+.tabela-pro { width: 100%; border-collapse: collapse; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e1e; border-radius: 8px; overflow: hidden; margin-bottom: 20px;}
+.tabela-pro th { background-color: #151515; color: #ff9900; font-size: 11px; text-transform: uppercase; padding: 14px 12px; text-align: left; border-bottom: 2px solid #333; }
+.tabela-pro td { padding: 14px 12px; border-bottom: 1px solid #2b2b2b; color: #ecf0f1; font-size: 13px; font-weight: bold; }
+.tabela-pro tr:hover { background-color: #252525; }
+.tabela-ativo { color: #3498db !important; font-weight: bold; text-decoration: none; }
+</style>
+"""
+
 # --- MOTOR DE COTAÇÕES EM LOTE (CARDS DA PÁGINA INICIAL) ---
 @st.cache_data(ttl=300)
 def buscar_dados_em_lote(lista_tickers, mercado="Macro"):
@@ -359,6 +370,51 @@ acoes_br_dict = {ticker.replace(".SA", ""): (ticker, 2) for ticker in acoes_br_l
 acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA", "MU", "VZ", "T", "HD", "SHOP", "DIS", "SPG", "ANET", "ICE", "KO", "EQNR", "EPR", "WFC", "VICI", "O", "CPRT", "ASX", "CEPU", "NVO", "PLTR", "JBL", "QCOM", "AAPL", "MSFT", "BAC", "ORCL", "EQT", "MNST", "CVS", "HUYA", "GPC", "PFE", "ROKU", "DIBS", "LEG", "MBUU", "FVRR"]
 acoes_usa_dict = {ticker: (ticker, 2) for ticker in acoes_usa_list}
 
+# --- FUNÇÕES GERADORAS DE BADGES ---
+def gerar_badge_recomendacao(rec):
+    rec_str = str(rec).strip().lower()
+    if rec_str in ['nan', 'none', 'n/a', '']:
+        return "<span style='color: #7f8c8d; font-weight: bold;'>---</span>"
+    
+    if "strong buy" in rec_str:
+        cor, bg = "#00b894", "rgba(0, 184, 148, 0.1)"
+        texto = "Strong Buy"
+    elif "buy" in rec_str:
+        cor, bg = "#00cc66", "rgba(0, 204, 102, 0.1)"
+        texto = "Buy"
+    elif "hold" in rec_str:
+        cor, bg = "#f1c40f", "rgba(241, 196, 15, 0.1)"
+        texto = "Hold"
+    elif "strong sell" in rec_str:
+        cor, bg = "#c0392b", "rgba(192, 57, 43, 0.1)"
+        texto = "Strong Sell"
+    elif "sell" in rec_str:
+        cor, bg = "#ff4b4b", "rgba(255, 75, 75, 0.1)"
+        texto = "Sell"
+    else:
+        cor, bg = "#bdc3c7", "rgba(189, 195, 199, 0.1)"
+        texto = str(rec).title()
+        
+    estilo = f"border: 1px solid {cor}; color: {cor}; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; background-color: {bg}; text-transform: uppercase;"
+    return f"<span style='{estilo}'>{texto}</span>"
+
+def gerar_badge_veredito(ver):
+    ver_str = str(ver).strip().lower()
+    if "compra forte" in ver_str:
+        cor, bg = "#00cc66", "rgba(0, 204, 102, 0.1)"
+    elif "estudo" in ver_str:
+        cor, bg = "#f1c40f", "rgba(241, 196, 15, 0.1)"
+    else:
+        cor, bg = "#bdc3c7", "rgba(189, 195, 199, 0.1)"
+        
+    estilo = f"border: 1px solid {cor}; color: {cor}; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; background-color: {bg}; text-transform: uppercase;"
+    return f"<span style='{estilo}'>{str(ver).title()}</span>"
+
+def format_money(r, c):
+    if pd.isna(r[c]) or r[c] <= 0: return "---"
+    simb = "R$" if "Fundamentus" in str(r.get('Origem', '')) else "$"
+    return f"{simb} {r[c]:.2f}"
+
 # --- CRIAÇÃO DAS ABAS ---
 aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_rankings, aba_simulador, aba_analises = st.tabs([
     "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🏆 Rankings", "🎛️ Simulador", "🎯 Raio-X & IA"
@@ -450,7 +506,7 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- ABA DE RANKINGS DINÂMICOS (SCREENER COM HTML INLINE STYLE 100% BLINDADO) ---
+    # --- ABA DE RANKINGS DINÂMICOS ---
     with aba_rankings:
         st.header("🏆 Rankings de Pechinchas (Screener)")
         st.write("Ações separadas por mercado para garantir comparabilidade justa de risco e prêmio.")
@@ -481,44 +537,6 @@ if os.path.exists(arquivo_csv):
             col_alvo, col_margem = 'Pontuacao_Magica', 'Pontuacao_Magica'
 
         df_rank = df_rank[df_rank[col_alvo] > 0]
-
-        def format_money(r, c):
-            simb = "R$" if "Fundamentus" in str(r['Origem']) else "$"
-            return f"{simb} {r[c]:.2f}"
-            
-        def gerar_badge_recomendacao(rec):
-            rec_str = str(rec).strip().lower()
-            if rec_str in ['nan', 'none', 'n/a', '']:
-                return "<span style='color: #7f8c8d; font-weight: bold;'>---</span>"
-            
-            if "strong buy" in rec_str:
-                cor = "#00b894" # Verde forte
-                bg = "rgba(0, 184, 148, 0.1)"
-                texto = "Strong Buy"
-            elif "buy" in rec_str:
-                cor = "#00cc66" # Verde neon
-                bg = "rgba(0, 204, 102, 0.1)"
-                texto = "Buy"
-            elif "hold" in rec_str:
-                cor = "#f1c40f" # Amarelo
-                bg = "rgba(241, 196, 15, 0.1)"
-                texto = "Hold"
-            elif "strong sell" in rec_str:
-                cor = "#c0392b" # Vermelho escuro
-                bg = "rgba(192, 57, 43, 0.1)"
-                texto = "Strong Sell"
-            elif "sell" in rec_str:
-                cor = "#ff4b4b" # Vermelho claro
-                bg = "rgba(255, 75, 75, 0.1)"
-                texto = "Sell"
-            else:
-                cor = "#bdc3c7"
-                bg = "rgba(189, 195, 199, 0.1)"
-                texto = str(rec).title()
-                
-            estilo = f"border: 1px solid {cor}; color: {cor}; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; background-color: {bg}; text-transform: uppercase;"
-            return f"<span style='{estilo}'>{texto}</span>"
-
         df_br = df_rank[df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
         df_usa = df_rank[~df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
 
@@ -533,13 +551,7 @@ if os.path.exists(arquivo_csv):
             df_sub.index = df_sub.index + 1
             df_sub['Posição'] = df_sub.index.astype(str) + "º"
             
-            html = """
-            <style>
-            .tabela-pro { width: 100%; border-collapse: collapse; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e1e; border-radius: 8px; overflow: hidden; margin-bottom: 20px;}
-            .tabela-pro th { background-color: #151515; color: #ff9900; font-size: 11px; text-transform: uppercase; padding: 14px 12px; text-align: left; border-bottom: 2px solid #333; }
-            .tabela-pro td { padding: 14px 12px; border-bottom: 1px solid #2b2b2b; color: #ecf0f1; font-size: 13px; }
-            .tabela-pro tr:hover { background-color: #252525; }
-            </style>
+            html = ESTILO_TABELA_PRO + """
             <table class="tabela-pro">
               <thead>
                 <tr>
@@ -557,7 +569,6 @@ if os.path.exists(arquivo_csv):
             for idx, row in df_sub.iterrows():
                 preco_atual = format_money(row, 'Preco')
                 
-                # Cores forçadas 100% via Inline Style
                 if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)":
                     preco_alvo = "---"
                     upside_text = f"Score: {row['Pontuacao_Magica']:.0f}"
@@ -577,16 +588,17 @@ if os.path.exists(arquivo_csv):
 
                 html += f"""
                 <tr>
-                  <td style="font-weight: bold; color: #ecf0f1;">{row['Posição']}</td>
-                  <td style="color: #3498db; font-weight: bold;">{row['Ticker']}</td>
-                  <td style="font-weight: bold; color: #ecf0f1;">{preco_atual}</td>
-                  <td style="font-weight: bold; color: #ecf0f1;">{preco_alvo}</td>
+                  <td>{row['Posição']}</td>
+                  <td class="tabela-ativo">{row['Ticker']}</td>
+                  <td>{preco_atual}</td>
+                  <td>{preco_alvo}</td>
                   <td style="{upside_style}">{upside_text}</td>
-                  <td style="font-weight: bold; color: #ecf0f1;">{row['Saude_Visual']}</td>
+                  <td>{row['Saude_Visual']}</td>
                 """
                 if "Consenso" in filtro_metodo:
                     badge = gerar_badge_recomendacao(row['Recomendacao'])
-                    html += f"<td style='font-weight: bold; color: #ecf0f1;'>{row['Num_Analistas']}</td><td>{badge}</td>"
+                    analistas = int(row['Num_Analistas']) if pd.notnull(row['Num_Analistas']) else 0
+                    html += f"<td>{analistas}</td><td>{badge}</td>"
                 html += "</tr>"
 
             html += "</tbody></table>"
@@ -595,58 +607,108 @@ if os.path.exists(arquivo_csv):
         mostrar_tabela_ranking(df_br, "🇧🇷 Top Oportunidades: Brasil")
         mostrar_tabela_ranking(df_usa, "🇺🇸 Top Oportunidades: Wall Street")
 
-    # --- ABA DE VALUATION PRO ---
+    # --- ABA DE VALUATION PRO (TABELA HTML) ---
     with aba_valuation:
         st.header("🧮 Valuation Institucional (Puro Consenso)")
-        
         df_cenarios = df.copy()
-        def formata_val(linha, col):
-            if pd.isna(linha[col]) or linha[col] <= 0: return "---"
-            simb = "R$" if "Fundamentus" in str(linha['Origem']) else "$"
-            return f"{simb} {linha[col]:.2f}"
-            
-        df_cenarios['Preco Atual'] = df_cenarios.apply(lambda r: f"{'R$' if 'Fundamentus' in str(r['Origem']) else '$'} {r['Preco']:.2f}", axis=1)
-        df_cenarios['🔴 Alvo Pessimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Pessimista'), axis=1)
-        df_cenarios['🟡 Alvo Base'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Base'), axis=1)
-        df_cenarios['🟢 Alvo Otimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Otimista'), axis=1)
-        df_cenarios = df_cenarios.sort_values(by='Margem_Base_%', ascending=False)
+        df_cenarios = df_cenarios.sort_values(by='Margem_Base_%', ascending=False).reset_index(drop=True)
         
-        st.dataframe(
-            df_cenarios[['Ticker', 'Preco Atual', '🔴 Alvo Pessimista', '🟡 Alvo Base', '🟢 Alvo Otimista', 'Num_Analistas', 'Recomendacao', 'Metodo_Valuation']], 
-            use_container_width=True, hide_index=True
-        )
+        html_val = ESTILO_TABELA_PRO + """
+        <table class="tabela-pro">
+          <thead>
+            <tr>
+              <th>Ativo</th>
+              <th>Preço Atual</th>
+              <th>🔴 Alvo Pessimista</th>
+              <th>🟡 Alvo Base</th>
+              <th>🟢 Alvo Otimista</th>
+              <th>Analistas</th>
+              <th>Recomendação</th>
+              <th>Método</th>
+            </tr>
+          </thead>
+          <tbody>
+        """
+        for idx, row in df_cenarios.iterrows():
+            preco_atual = format_money(row, 'Preco')
+            alvo_p = format_money(row, 'Val_Pessimista')
+            alvo_b = format_money(row, 'Val_Base')
+            alvo_o = format_money(row, 'Val_Otimista')
+            badge = gerar_badge_recomendacao(row['Recomendacao'])
+            analistas = int(row['Num_Analistas']) if pd.notnull(row['Num_Analistas']) else 0
+            
+            html_val += f"""
+            <tr>
+              <td class="tabela-ativo">{row['Ticker']}</td>
+              <td>{preco_atual}</td>
+              <td>{alvo_p}</td>
+              <td>{alvo_b}</td>
+              <td>{alvo_o}</td>
+              <td>{analistas}</td>
+              <td>{badge}</td>
+              <td>{row['Metodo_Valuation']}</td>
+            </tr>
+            """
+        html_val += "</tbody></table>"
+        st.markdown(html_val, unsafe_allow_html=True)
 
-    # --- ABA DE FUNDAMENTOS ---
+    # --- ABA DE FUNDAMENTOS (TABELA HTML) ---
     with aba_fundamentos:
         st.header("Radar de Valor e Qualidade")
+        df_fundo = df.copy().sort_values(by='Pontuacao_Magica', ascending=True).reset_index(drop=True)
         
-        df_fundo = df.copy().sort_values(by='Pontuacao_Magica', ascending=True)
-        
-        def formatar_moeda(linha, nome_coluna):
-            valor = linha[nome_coluna]
-            if pd.isna(valor) or valor <= 0: return "---"
-            simbolo = "R$" if "Fundamentus" in str(linha['Origem']) else "$"
-            return f"{simbolo} {valor:.2f}"
-
-        for col in ['Preco', 'Teto_Bazin', 'Justo_Graham']:
-            df_fundo[col] = df_fundo.apply(lambda row: formatar_moeda(row, col), axis=1)
+        html_fund = ESTILO_TABELA_PRO + """
+        <table class="tabela-pro">
+          <thead>
+            <tr>
+              <th>Ativo</th>
+              <th>Preço</th>
+              <th>Saúde Visual</th>
+              <th>F-Score</th>
+              <th>Score Mágico</th>
+              <th>ROIC</th>
+              <th>ROE</th>
+              <th>EV/EBIT</th>
+              <th>Div Yield</th>
+              <th>Cresc. 5A</th>
+              <th>Teto Bazin</th>
+              <th>Justo Graham</th>
+            </tr>
+          </thead>
+          <tbody>
+        """
+        for idx, row in df_fundo.iterrows():
+            preco = format_money(row, 'Preco')
+            bazin = format_money(row, 'Teto_Bazin')
+            graham = format_money(row, 'Justo_Graham')
             
-        df_fundo['Pontuacao_Magica'] = df_fundo['Pontuacao_Magica'].apply(lambda x: f"{x:.0f}" if pd.notnull(x) and x > 0 else "---")
-        df_fundo['ROIC_%'] = df_fundo['ROIC_%'].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "---")
-        df_fundo['ROE_%'] = df_fundo['ROE_%'].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "---")
-        df_fundo['EV_EBIT'] = df_fundo['EV_EBIT'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) and x > 0 else "---")
-        df_fundo['Div_Yield_%'] = df_fundo['Div_Yield_%'].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "---")
-        df_fundo['Crescimento_5a_%'] = df_fundo['Crescimento_5a_%'].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "---")
+            score_magico = f"{row['Pontuacao_Magica']:.0f}" if pd.notnull(row['Pontuacao_Magica']) and row['Pontuacao_Magica'] > 0 else "---"
+            roic = f"{row['ROIC_%']:.2f}%" if pd.notnull(row['ROIC_%']) else "---"
+            roe = f"{row['ROE_%']:.2f}%" if pd.notnull(row['ROE_%']) else "---"
+            evebit = f"{row['EV_EBIT']:.2f}" if pd.notnull(row['EV_EBIT']) and row['EV_EBIT'] > 0 else "---"
+            yield_str = f"{row['Div_Yield_%']:.2f}%" if pd.notnull(row['Div_Yield_%']) else "---"
+            cresc = f"{row['Crescimento_5a_%']:.2f}%" if pd.notnull(row['Crescimento_5a_%']) else "---"
+            
+            html_fund += f"""
+            <tr>
+              <td class="tabela-ativo">{row['Ticker']}</td>
+              <td>{preco}</td>
+              <td>{row['Saude_Visual']}</td>
+              <td>{row['F_Score']}</td>
+              <td>{score_magico}</td>
+              <td>{roic}</td>
+              <td>{roe}</td>
+              <td>{evebit}</td>
+              <td>{yield_str}</td>
+              <td>{cresc}</td>
+              <td>{bazin}</td>
+              <td>{graham}</td>
+            </tr>
+            """
+        html_fund += "</tbody></table>"
+        st.markdown(html_fund, unsafe_allow_html=True)
 
-        colunas_para_exibir = [
-            'Ticker', 'Preco', 'Saude_Visual', 'F_Score', 'Pontuacao_Magica', 
-            'ROIC_%', 'ROE_%', 'EV_EBIT', 'Div_Yield_%', 'Crescimento_5a_%', 
-            'Teto_Bazin', 'Justo_Graham'
-        ]
-        
-        st.dataframe(df_fundo[colunas_para_exibir], use_container_width=True, hide_index=True)
-
-    # --- ABA SIMULADOR ---
+    # --- ABA SIMULADOR (TABELA HTML) ---
     with aba_simulador:
         st.header("🎛️ Laboratório de Estratégia Ponderada")
         
@@ -661,10 +723,8 @@ if os.path.exists(arquivo_csv):
         df_sim = df.copy()
         df_sim['N_Graham'] = df_sim['Margem_Graham_%'].rank(pct=True) * 100
         df_sim['N_Bazin'] = df_sim['Margem_Bazin_%'].rank(pct=True) * 100
-        
         df_sim['Margem_Temp_Mercado'] = np.where(df_sim['Margem_Base_%'] != -999, df_sim['Margem_Base_%'], 0)
         df_sim['N_Mercado'] = df_sim['Margem_Temp_Mercado'].rank(pct=True) * 100
-        
         df_sim['N_Magic'] = df_sim.get('Pontuacao_Magica', pd.Series([0]*len(df_sim))).fillna(0).rank(ascending=False, pct=True) * 100
         df_sim['N_FScore'] = (df_sim['F_Score'] / 5) * 100
 
@@ -677,10 +737,38 @@ if os.path.exists(arquivo_csv):
         df_sim.index = df_sim.index + 1
         df_sim['Rank'] = df_sim.index.astype(str) + "º"
         df_sim['Veredito'] = pd.cut(df_sim['Nota_Final'], bins=[-1, 40, 75, 100], labels=["Neutro", "Estudo", "Compra Forte"])
-        df_sim['Nota_Final'] = df_sim['Nota_Final'].apply(lambda x: f"{x:.1f}/100")
-        
-        df_sim['Preco_Atual'] = df_sim.apply(lambda r: f"{'R$' if 'Fundamentus' in str(r['Origem']) else '$'} {r['Preco']:.2f}", axis=1)
-        st.dataframe(df_sim[['Rank', 'Ticker', 'Preco_Atual', 'Nota_Final', 'Veredito', 'Saude_Visual']], use_container_width=True, hide_index=True)
+
+        html_sim = ESTILO_TABELA_PRO + """
+        <table class="tabela-pro">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Ativo</th>
+              <th>Preço Atual</th>
+              <th>Nota Final</th>
+              <th>Veredito</th>
+              <th>Saúde Visual</th>
+            </tr>
+          </thead>
+          <tbody>
+        """
+        for idx, row in df_sim.iterrows():
+            preco_atual = format_money(row, 'Preco')
+            nota = f"{row['Nota_Final']:.1f}/100"
+            badge_ver = gerar_badge_veredito(row['Veredito'])
+            
+            html_sim += f"""
+            <tr>
+              <td>{row['Rank']}</td>
+              <td class="tabela-ativo">{row['Ticker']}</td>
+              <td>{preco_atual}</td>
+              <td>{nota}</td>
+              <td>{badge_ver}</td>
+              <td>{row['Saude_Visual']}</td>
+            </tr>
+            """
+        html_sim += "</tbody></table>"
+        st.markdown(html_sim, unsafe_allow_html=True)
 
 else: 
     st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
