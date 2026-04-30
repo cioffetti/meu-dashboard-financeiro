@@ -169,7 +169,8 @@ def abrir_raio_x(ticker):
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker, dados_fundos=None):
     if not GOOGLE_API_KEY: return st.error("⚠️ Configure sua GOOGLE_API_KEY.")
-    st.info(f"Coletando notícias e cruzando Pilares para **{ticker}**...")
+    st.info(f"Coletando notícias reais e cruzando Pilares Institucionais para **{ticker}**...")
+    
     try:
         preco_atual_ia, suporte_ia = "N/A", "N/A"
         moeda_ia = "R$" if ".SA" in ticker else "US$"
@@ -209,37 +210,138 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
                     for item in root.findall('.//item')[:30]:
                         t = item.find('title').text if item.find('title') is not None else ""
                         d = item.find('pubDate').text[5:16] if item.find('pubDate') is not None else "Recente"
-                        f = item.find('source').text if item.find('source') is not None else "Portal"
+                        f = item.find('source').text if item.find('source') is not None else "Portal Financeiro"
                         if t: texto_noticias += f"- Data: {d} | Fonte: {f} | Título: {t}\n"
             except Exception: pass
                 
-        if not texto_noticias.strip(): texto_noticias = "Sem notícias recentes."
+        if not texto_noticias.strip(): texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
 
-        contexto = f"**DADOS:** Preço Atual: {preco_atual_ia} | Suporte: {suporte_ia}\n"
+        contexto_dados = f"""
+        **DADOS TÉCNICOS (PREÇO ATUAL E GRÁFICO):**
+        - Preço Atual da Ação: {preco_atual_ia}
+        - Suporte Gráfico (Preço Alvo Técnico): {suporte_ia}
+        """
+        
+        metodo_val = "Desconhecido"
         if dados_fundos:
+            v_pessimista = dados_fundos.get('Val_Pessimista', 0)
             v_base = dados_fundos.get('Val_Base', 0)
-            metodo = dados_fundos.get('Metodo_Valuation', 'Desconhecido')
-            contexto += f"Valuation ({metodo}): Alvo Base {moeda_ia} {v_base if isinstance(v_base, str) else f'{v_base:.2f}'}\n"
-            contexto += f"F-Score: {dados_fundos.get('F_Score', 'N/A')} | ROIC: {dados_fundos.get('ROIC_%', 'N/A')}%\n"
+            v_otimista = dados_fundos.get('Val_Otimista', 0)
+            v_fscore = dados_fundos.get('F_Score', 'N/A')
+            v_roic = dados_fundos.get('ROIC_%', 'N/A')
+            n_analistas = dados_fundos.get('Num_Analistas', 0)
+            recomendacao = dados_fundos.get('Recomendacao', 'N/A')
+            metodo_val = dados_fundos.get('Metodo_Valuation', 'Desconhecido')
+            
+            contexto_dados += f"""
+        **VALUATION (METODOLOGIA APLICADA: {metodo_val}):**
+        - Alvo Pessimista: {moeda_ia} {v_pessimista if isinstance(v_pessimista, str) else f"{v_pessimista:.2f}"}
+        - Alvo Base (Preço Justo Central): {moeda_ia} {v_base if isinstance(v_base, str) else f"{v_base:.2f}"}
+        - Alvo Otimista: {moeda_ia} {v_otimista if isinstance(v_otimista, str) else f"{v_otimista:.2f}"}
+        - Cobertura: {n_analistas} analistas acompanham este ativo. (Se a fonte for 'Sem Cobertura', informe o usuário que não há consenso claro).
+        - Recomendação Média: {recomendacao}
+        
+        **FUNDAMENTOS OPERACIONAIS:**
+        - Nota de Qualidade da Empresa (F-Score): {v_fscore} de 5 estrelas.
+        - ROIC Atual: {v_roic}%
+            """
 
-        prompt = f"Atue como Analista Chefe. Analise {ticker}.\nContexto: {contexto}\nNotícias: {texto_noticias}\nGere: 1. SWOT Rápida. 2. Raio-X Operacional. 3. Resumo de Notícias. 4. Veredito. Use {moeda_ia}. Avalie com ceticismo se estiver 'Sem Cobertura'."
-        st.markdown(genai.GenerativeModel('gemini-2.5-flash-lite').generate_content(prompt).text)
-    except Exception as e: st.error(f"Erro na IA: {e}")
+        data_hoje = datetime.now().strftime("%d/%m/%Y")
 
-# --- LISTAS DE ATIVOS (100% RESTAURADAS COM TODOS OS 98 ATIVOS ORIGINAIS) ---
+        # O PROMPT ORIGINAL E DETALHADO ESTÁ DE VOLTA AQUI:
+        prompt = f"""
+        Hoje é dia {data_hoje}. Atue como o Analista Chefe do comitê de investimentos. 
+        Analise o ativo {ticker}.
+        
+        Abaixo estão os Alvos de Valuation e as notícias REAIS coletadas:
+        {contexto_dados}
+        
+        MANCHETES:
+        {texto_noticias}
+        
+        REGRA DE FORMATAÇÃO E ESTILO (INEGOCIÁVEL):
+        1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$'.
+        2. Na Matriz SWOT, você DEVE fornecer EXATAMENTE 3 tópicos para cada categoria.
+        3. Nas Notícias, pule uma linha entre a Manchete e o 'Resumo do Analista'.
+        4. Avalie com extremo ceticismo se a empresa estiver 'Sem Cobertura' de mercado.
+        
+        A sua resposta DEVE seguir estritamente a estrutura abaixo:
+        
+        ## 1. Análise SWOT Dinâmica
+        **Forças:**
+        * [Ponto forte 1]
+        * [Ponto forte 2]
+        * [Ponto forte 3]
+        
+        **Fraquezas:**
+        * [Ponto fraco 1]
+        * [Ponto fraco 2]
+        * [Ponto fraco 3]
+        
+        **Oportunidades:**
+        * [Oportunidade 1]
+        * [Oportunidade 2]
+        * [Oportunidade 3]
+        
+        **Ameaças:**
+        * [Ameaça 1]
+        * [Ameaça 2]
+        * [Ameaça 3]
+        
+        ## 2. Raio-X do Balanço (Foco Operacional)
+        REGRA: Avalie APENAS a qualidade da operação e a saúde (ROIC, Estrelas). É expressamente proibido citar fórmulas de valuation de gurus ou preços nesta seção.
+        * **✅ 3 Pontos Positivos:** [Descreva 3 destaques da operação de forma fluida]
+        * **⚠️ 3 Pontos de Atenção (Negativos):** [Descreva 3 preocupações operacionais/financeiras]
+        
+        ## 3. Termômetro de Notícias
+        Selecione as 5 manchetes reais mais positivas e as 5 mais negativas. Ordene-as da mais RECENTE para a mais ANTIGA.
+        
+        **Notícias Positivas Recentes:**
+        * **[Data] - [Fonte] - [Manchete]**
+        
+          **Resumo do Analista:** [Explicação fluida e separada da manchete].
+        
+        **Notícias Negativas Recentes:**
+        * **[Data] - [Fonte] - [Manchete]**
+        
+          **Resumo do Analista:** [Explicação fluida e separada da manchete].
+        
+        ---
+        ## 4. O Quadrante de Decisão
+        * 📈 **Análise Gráfica (Timing):** [Aprove ou rejeite a entrada com base no Suporte Técnico fornecido em relação ao preço atual].
+        * 💰 **Valuation ({metodo_val}):** [Avalie o preço atual frente ao Cenário Base fornecido. O ativo embute prêmio de risco adequado ou negocia com margem?].
+        * 🏢 **Fundamentos:** [Escreva julgando a qualidade da operação com base nas Estrelas F-Score e no ROIC].
+        * 🌡️ **Sentimento de Mercado:** [Defina em caixa alta OTIMISTA, NEUTRO ou PESSIMISTA, e escreva justificando com base nas notícias].
+        
+        ## 👑 Veredito Final
+        **Ação Recomendada:** [COMPRAR, MANTER, AGUARDAR SUPORTE ou VENDER].
+        
+        **Preço Sugerido para Compra:** [Com base no Suporte Gráfico e no Preço Alvo Base, defina o preço teto exato de entrada].
+        
+        **Tese Final:** [Escreva o fechamento da análise cruzando o preço técnico, o valuation, os fundamentos e a narrativa da mídia].
+        """
+        
+        model = genai.GenerativeModel('gemini-2.5-flash-lite')
+        response = model.generate_content(prompt)
+        st.markdown(response.text)
+    except Exception as e:
+        st.error(f"Erro ao comunicar com a IA ou processar dados: {e}")
+
+# --- LISTAS DE ATIVOS (100% COMPLETAS - NENHUM ATIVO APAGADO) ---
 macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F", 2), "Petróleo (Brent)": ("BZ=F", 2), "Bitcoin": ("BTC-USD", 2), "Ethereum": ("ETH-USD", 2), "Solana": ("SOL-USD", 2), "Ibovespa": ("^BVSP", 2), "S&P 500": ("^GSPC", 2), "Dow Jones": ("^DJI", 2), "Nasdaq": ("^IXIC", 2), "DAX (Alem)": ("^GDAXI", 2), "Nikkei (Jap)": ("^N225", 2), "Shanghai (Chi)": ("000001.SS", 2), "Shenzhen (Chi)": ("399001.SZ", 2), "Merval (Arg)": ("^MERV", 2)}
 
 acoes_br_list = ["AGRO3.SA", "AMOB3.SA", "BBAS3.SA", "BBDC3.SA", "BBSE3.SA", "BRSR6.SA", "B3SA3.SA", "CMIG3.SA", "CXSE3.SA", "EGIE3.SA", "EQTL3.SA", "EZTC3.SA", "FLRY3.SA", "GMAT3.SA", "ITSA4.SA", "KEPL3.SA", "KLBN3.SA", "LEVE3.SA", "PETR3.SA", "PRIO3.SA", "PSSA3.SA", "RAIZ4.SA", "RANI3.SA", "SAPR4.SA", "SBFG3.SA", "SMTO3.SA", "SOJA3.SA", "SUZB3.SA", "TAEE11.SA", "TTEN3.SA", "VAMO3.SA", "VIVT3.SA", "WEGE3.SA", "ETHE11.SA", "GOLD11.SA", "QSOL11.SA", "QBTC11.SA"]
-acoes_br_dict = {t.replace(".SA", ""): (t, 2) for t in acoes_br_list}
+acoes_br_dict = {ticker.replace(".SA", ""): (ticker, 2) for ticker in acoes_br_list}
 
 acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA", "MU", "VZ", "T", "HD", "SHOP", "DIS", "SPG", "ANET", "ICE", "KO", "EQNR", "EPR", "WFC", "VICI", "O", "CPRT", "ASX", "CEPU", "NVO", "PLTR", "JBL", "QCOM", "AAPL", "MSFT", "BAC", "ORCL", "EQT", "MNST", "CVS", "HUYA", "GPC", "PFE", "ROKU", "DIBS", "LEG", "MBUU", "FVRR"]
-acoes_usa_dict = {t: (t, 2) for t in acoes_usa_list}
+acoes_usa_dict = {ticker: (ticker, 2) for ticker in acoes_usa_list}
 
 # --- CRIAÇÃO DAS ABAS ---
 aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_rankings, aba_simulador, aba_analises = st.tabs([
     "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🏆 Rankings", "🎛️ Simulador", "🎯 Raio-X & IA"
 ])
 
+# --- RENDERIZAÇÃO DOS CARDS (INTERFACE ORIGINAL RESTAURADA: BOTÃO LARGO + LEGENDA) ---
 def renderizar_grid_cards(dicionario_ativos, mercado):
     lista_tickers = [info[0] for info in dicionario_ativos.values()]
     dados_lote, fonte = buscar_dados_em_lote(lista_tickers, mercado)
@@ -265,6 +367,7 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                                 fig = go.Figure(go.Scatter(x=precos.index, y=precos, mode='lines', line=dict(color=cor_linha, width=2), fill='tozeroy', fillcolor=cor_preenchimento))
                                 fig.update_layout(template="plotly_dark", height=80, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                                # BOTÃO E LEGENDA TOTALMENTE RESTAURADOS COMO O ORIGINAL:
                                 if st.button("🔍 Histórico", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
                                     abrir_historico_simples(ticker, nome_exibicao)
                                 st.caption(f"⚡ {hora_consulta} | {fonte}")
@@ -341,7 +444,6 @@ if os.path.exists(arquivo_csv):
 
         df_rank = df.copy()
 
-        # Mapeando a escolha do usuário para as colunas
         if filtro_metodo == "Consenso Base (Média de Mercado)":
             col_alvo, col_margem = 'Val_Base', 'Margem_Base_%'
         elif filtro_metodo == "Consenso Pessimista (Conservador)":
@@ -353,14 +455,12 @@ if os.path.exists(arquivo_csv):
         elif filtro_metodo == "Justo de Graham (Foco em Patrimônio/Lucro)":
             col_alvo, col_margem = 'Justo_Graham', 'Margem_Graham_%'
 
-        # Filtra só quem tem dados válidos para a métrica escolhida
         df_rank = df_rank[df_rank[col_alvo] > 0]
 
         def format_money(r, c):
             simb = "R$" if "Fundamentus" in str(r['Origem']) else "$"
             return f"{simb} {r[c]:.2f}"
 
-        # DIVISÃO POR MERCADO
         df_br = df_rank[df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
         df_usa = df_rank[~df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
 
@@ -371,7 +471,6 @@ if os.path.exists(arquivo_csv):
                 st.info("Nenhum ativo atende aos critérios nesta métrica.")
                 return
             
-            # Ordena do maior desconto para o menor
             df_sub = df_sub.sort_values(by=col_margem, ascending=False).reset_index(drop=True)
             df_sub.index = df_sub.index + 1
             df_sub['Posição'] = df_sub.index.astype(str) + "º"
