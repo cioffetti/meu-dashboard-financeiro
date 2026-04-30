@@ -29,7 +29,7 @@ def formatar_br(valor, casas):
     texto = f"{valor:,.{casas}f}"
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- MOTOR DE COTAÇÕES EM LOTE (CARDS TOP) ---
+# --- MOTOR DE COTAÇÕES EM LOTE (CARDS) ---
 @st.cache_data(ttl=300)
 def buscar_dados_em_lote(lista_tickers, mercado="Macro"):
     if mercado == "BR" and BRAPI_KEY:
@@ -52,22 +52,7 @@ def buscar_dados_em_lote(lista_tickers, mercado="Macro"):
     except Exception:
         return None, "ERRO"
 
-@st.cache_data(ttl=3600)
-def buscar_taxas_macro():
-    selic_atual, us10y_atual = 10.50, 4.25
-    try:
-        url_bcb = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json"
-        selic_atual = float(requests.get(url_bcb, timeout=3).json()[0]['valor'])
-    except Exception: pass
-    try:
-        dados_tnx = yf.download("^TNX", period="5d", progress=False)
-        if not dados_tnx.empty: us10y_atual = float(dados_tnx['Close'].iloc[-1])
-    except Exception: pass
-    return selic_atual, us10y_atual
-
-taxa_selic_live, taxa_us10y_live = buscar_taxas_macro()
-
-# --- ATUALIZADOR DE PREÇOS AO VIVO ---
+# --- O TRADUTOR DE PREÇOS AO VIVO ---
 @st.cache_data(ttl=300)
 def injetar_precos_ao_vivo(df_base):
     df_atualizado = df_base.copy()
@@ -84,7 +69,7 @@ def injetar_precos_ao_vivo(df_base):
         mapa_tickers[t_yf] = t_clean
 
     try:
-        dados = yf.download(" ".join(tickers_yf), period="5d", progress=False)
+        dados = yf.download(" ".join(tickers_yf), period="1d", progress=False)
         if 'Close' in dados:
             fechamentos = dados['Close']
             if isinstance(fechamentos, pd.Series): 
@@ -100,30 +85,17 @@ def injetar_precos_ao_vivo(df_base):
         pass 
     return df_atualizado
 
-# --- JANELA DE HISTÓRICO SIMPLES (5 ANOS) ---
+# --- JANELAS DE GRÁFICOS E IA ---
 @st.dialog("📈 Histórico de Longo Prazo (5 Anos)", width="large")
 def abrir_historico_simples(ticker, nome):
-    st.write(f"Carregando histórico de 5 anos para **{nome}** ({ticker})...")
     try:
         dados = yf.Ticker(ticker).history(period="5y")
-        if dados.empty:
-            st.error("Dados não encontrados para este ativo no Yahoo Finance.")
-            return
-            
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=dados.index, y=dados['Close'], fill='tozeroy', mode='lines', 
-            line=dict(color='#00FFCC', width=2), fillcolor='rgba(0, 255, 204, 0.1)', name="Preço"
-        ))
-        fig.update_layout(
-            template="plotly_dark", height=500, margin=dict(l=0, r=0, t=10, b=0), 
-            xaxis_rangeslider_visible=False, yaxis_title="Cotação"
-        )
+        if dados.empty: return st.error("Sem dados.")
+        fig = go.Figure(go.Scatter(x=dados.index, y=dados['Close'], fill='tozeroy', line=dict(color='#00FFCC', width=2), fillcolor='rgba(0, 255, 204, 0.1)'))
+        fig.update_layout(template="plotly_dark", height=500, margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False)
         st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.error(f"Erro ao carregar histórico: {e}")
+    except Exception as e: st.error(f"Erro: {e}")
 
-# --- FASE 3: MOTOR DE ANÁLISE TÉCNICA E GRÁFICOS ---
 def calcular_indicadores_tecnicos(df):
     df['SMA_20'] = df['Close'].rolling(window=20).mean()
     df['STD_20'] = df['Close'].rolling(window=20).std()
@@ -154,12 +126,9 @@ def encontrar_suportes_resistencias(df):
 
 @st.dialog("🔬 Raio-X Técnico Profissional", width="large")
 def abrir_raio_x(ticker):
-    st.write(f"Buscando histórico de mercado para **{ticker}** e calculando algoritmos...")
     try:
         dados = yf.Ticker(ticker).history(period="5y")
-        if dados.empty:
-            st.error("Dados não encontrados para este ativo no Yahoo Finance.")
-            return
+        if dados.empty: return st.error("Sem dados.")
         df_tec = calcular_indicadores_tecnicos(dados)
         suportes, resistencias = encontrar_suportes_resistencias(df_tec)
         df_tec = df_tec.tail(250) 
@@ -192,28 +161,22 @@ def abrir_raio_x(ticker):
             distancia = ((preco_atual - suportes[0]) / preco_atual) * 100
             st.markdown(f"**Distância para o Piso Seguro:** Faltam {distancia:.2f}% de queda para atingir o suporte gráfico mais próximo.")
             moeda = "R$" if ".SA" in ticker else "US$"
-            st.success(f"🎯 **Preço Atrativo de Entrada (Suporte Mais Próximo):** {moeda} {suportes[0]:.2f}")
-    except Exception as e: st.error(f"Erro ao processar Raio-X: {e}")
+            st.success(f"🎯 **Preço Atrativo de Entrada:** {moeda} {suportes[0]:.2f}")
+    except Exception as e: st.error(f"Erro: {e}")
 
-# --- FASE 4: MOTOR DE INTELIGÊNCIA ARTIFICIAL (RAG) ---
 @st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
 def gerar_relatorio_ia(ticker, dados_fundos=None):
-    if not GOOGLE_API_KEY:
-        st.error("⚠️ Chave GOOGLE_API_KEY não encontrada. Configure no arquivo .env.")
-        return
-        
-    st.info(f"Coletando notícias reais e cruzando Pilares Institucionais para **{ticker}**...")
-    
+    if not GOOGLE_API_KEY: return st.error("⚠️ Configure sua GOOGLE_API_KEY.")
+    st.info(f"Coletando notícias e cruzando Pilares para **{ticker}**...")
     try:
-        preco_atual_ia = "N/A"
-        suporte_ia = "N/A"
+        preco_atual_ia, suporte_ia = "N/A", "N/A"
         moeda_ia = "R$" if ".SA" in ticker else "US$"
         try:
             dados_hist = yf.Ticker(ticker).history(period="2y")
             if not dados_hist.empty:
                 df_tec_ia = calcular_indicadores_tecnicos(dados_hist)
                 sup_ia, _ = encontrar_suportes_resistencias(df_tec_ia)
-                suporte_ia = f"{moeda_ia} {sup_ia[0]:.2f}" if sup_ia else "Não identificado"
+                if sup_ia: suporte_ia = f"{moeda_ia} {sup_ia[0]:.2f}"
                 preco_atual_ia = f"{moeda_ia} {df_tec_ia['Close'].iloc[-1]:.2f}"
         except Exception: pass
 
@@ -241,136 +204,36 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
                 resp = requests.get(url_news, timeout=10)
                 if resp.status_code == 200:
                     root = ET.fromstring(resp.text)
-                    items = root.findall('.//item')
-                    for item in items[:30]:
+                    for item in root.findall('.//item')[:30]:
                         t = item.find('title').text if item.find('title') is not None else ""
                         d = item.find('pubDate').text[5:16] if item.find('pubDate') is not None else "Recente"
-                        f = item.find('source').text if item.find('source') is not None else "Portal Financeiro"
+                        f = item.find('source').text if item.find('source') is not None else "Portal"
                         if t: texto_noticias += f"- Data: {d} | Fonte: {f} | Título: {t}\n"
             except Exception: pass
                 
-        if not texto_noticias.strip():
-            texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
+        if not texto_noticias.strip(): texto_noticias = "Sem notícias recentes."
 
-        contexto_dados = f"""
-        **DADOS TÉCNICOS (PREÇO ATUAL E GRÁFICO):**
-        - Preço Atual da Ação: {preco_atual_ia}
-        - Suporte Gráfico (Preço Alvo Técnico): {suporte_ia}
-        """
+        contexto = f"**DADOS:** Preço Atual: {preco_atual_ia} | Suporte: {suporte_ia}\n"
         if dados_fundos:
-            v_pessimista = dados_fundos.get('Val_Pessimista', 0)
             v_base = dados_fundos.get('Val_Base', 0)
-            v_otimista = dados_fundos.get('Val_Otimista', 0)
-            v_fscore = dados_fundos.get('F_Score', 'N/A')
-            v_roic = dados_fundos.get('ROIC_%', 'N/A')
-            n_analistas = dados_fundos.get('Num_Analistas', 0)
-            recomendacao = dados_fundos.get('Recomendacao', 'N/A')
-            metodo_val = dados_fundos.get('Metodo_Valuation', 'Desconhecido')
-            
-            contexto_dados += f"""
-        **VALUATION (METODOLOGIA APLICADA: {metodo_val}):**
-        - Alvo Pessimista: {moeda_ia} {v_pessimista if isinstance(v_pessimista, str) else f"{v_pessimista:.2f}"}
-        - Alvo Base (Preço Justo Central): {moeda_ia} {v_base if isinstance(v_base, str) else f"{v_base:.2f}"}
-        - Alvo Otimista: {moeda_ia} {v_otimista if isinstance(v_otimista, str) else f"{v_otimista:.2f}"}
-        - Cobertura: {n_analistas} analistas acompanham este ativo. (Se a fonte for 'Sem Cobertura', informe o usuário que não há consenso de mercado claro).
-        - Recomendação Média: {recomendacao}
-        
-        **FUNDAMENTOS OPERACIONAIS:**
-        - Nota de Qualidade da Empresa (F-Score): {v_fscore} de 5 estrelas.
-        - ROIC Atual: {v_roic}%
-            """
+            metodo = dados_fundos.get('Metodo_Valuation', 'Desconhecido')
+            contexto += f"Valuation ({metodo}): Alvo Base {moeda_ia} {v_base if isinstance(v_base, str) else f'{v_base:.2f}'}\n"
+            contexto += f"F-Score: {dados_fundos.get('F_Score', 'N/A')} | ROIC: {dados_fundos.get('ROIC_%', 'N/A')}%\n"
 
-        data_hoje = datetime.now().strftime("%d/%m/%Y")
-
-        prompt = f"""
-        Hoje é dia {data_hoje}. Atue como o Analista Chefe do comitê de investimentos. 
-        Analise o ativo {ticker}.
-        
-        Abaixo estão os Alvos de Valuation e as notícias REAIS coletadas:
-        {contexto_dados}
-        
-        MANCHETES:
-        {texto_noticias}
-        
-        REGRA DE FORMATAÇÃO E ESTILO (INEGOCIÁVEL):
-        1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$'.
-        2. Na Matriz SWOT, você DEVE fornecer EXATAMENTE 3 tópicos para cada categoria.
-        3. Nas Notícias, pule uma linha entre a Manchete e o 'Resumo do Analista'.
-        4. Avalie com extremo ceticismo se a empresa estiver 'Sem Cobertura' de mercado.
-        
-        A sua resposta DEVE seguir estritamente a estrutura abaixo:
-        
-        ## 1. Análise SWOT Dinâmica
-        **Forças:**
-        * [Ponto forte 1]
-        * [Ponto forte 2]
-        * [Ponto forte 3]
-        
-        **Fraquezas:**
-        * [Ponto fraco 1]
-        * [Ponto fraco 2]
-        * [Ponto fraco 3]
-        
-        **Oportunidades:**
-        * [Oportunidade 1]
-        * [Oportunidade 2]
-        * [Oportunidade 3]
-        
-        **Ameaças:**
-        * [Ameaça 1]
-        * [Ameaça 2]
-        * [Ameaça 3]
-        
-        ## 2. Raio-X do Balanço (Foco Operacional)
-        REGRA: Avalie APENAS a qualidade da operação e a saúde (ROIC, Estrelas). É expressamente proibido citar fórmulas de valuation de gurus ou preços nesta seção.
-        * **✅ 3 Pontos Positivos:** [Descreva 3 destaques da operação de forma fluida]
-        * **⚠️ 3 Pontos de Atenção (Negativos):** [Descreva 3 preocupações operacionais/financeiras]
-        
-        ## 3. Termômetro de Notícias
-        Selecione as 5 manchetes reais mais positivas e as 5 mais negativas. Ordene-as da mais RECENTE para a mais ANTIGA.
-        
-        **Notícias Positivas Recentes:**
-        * **[Data] - [Fonte] - [Manchete]**
-        
-          **Resumo do Analista:** [Explicação fluida e separada da manchete].
-        
-        **Notícias Negativas Recentes:**
-        * **[Data] - [Fonte] - [Manchete]**
-        
-          **Resumo do Analista:** [Explicação fluida e separada da manchete].
-        
-        ---
-        ## 4. O Quadrante de Decisão
-        * 📈 **Análise Gráfica (Timing):** [Aprove ou rejeite a entrada com base no Suporte Técnico fornecido em relação ao preço atual].
-        * 💰 **Valuation ({metodo_val}):** [Avalie o preço atual frente ao Cenário Base fornecido. O ativo embute prêmio de risco adequado ou negocia com margem?].
-        * 🏢 **Fundamentos:** [Escreva julgando a qualidade da operação com base nas Estrelas F-Score e no ROIC].
-        * 🌡️ **Sentimento de Mercado:** [Defina em caixa alta OTIMISTA, NEUTRO ou PESSIMISTA, e escreva justificando com base nas notícias].
-        
-        ## 👑 Veredito Final
-        **Ação Recomendada:** [COMPRAR, MANTER, AGUARDAR SUPORTE ou VENDER].
-        
-        **Preço Sugerido para Compra:** [Com base no Suporte Gráfico e no Preço Alvo Base, defina o preço teto exato de entrada].
-        
-        **Tese Final:** [Escreva o fechamento da análise cruzando o preço técnico, o valuation, os fundamentos e a narrativa da mídia].
-        """
-        
-        model = genai.GenerativeModel('gemini-2.5-flash-lite')
-        response = model.generate_content(prompt)
-        st.markdown(response.text)
-    except Exception as e:
-        st.error(f"Erro ao comunicar com a IA ou processar dados: {e}")
-
+        prompt = f"Atue como Analista Chefe. Analise {ticker}.\nContexto: {contexto}\nNotícias: {texto_noticias}\nGere: 1. SWOT Rápida. 2. Raio-X Operacional. 3. Resumo de Notícias. 4. Veredito. Use {moeda_ia}. Avalie com ceticismo se estiver 'Sem Cobertura'."
+        st.markdown(genai.GenerativeModel('gemini-2.5-flash-lite').generate_content(prompt).text)
+    except Exception as e: st.error(f"Erro na IA: {e}")
 
 # --- LISTAS DE ATIVOS ---
-macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F", 2), "Petróleo (Brent)": ("BZ=F", 2), "Bitcoin": ("BTC-USD", 2), "Ethereum": ("ETH-USD", 2), "Solana": ("SOL-USD", 2), "Ibovespa": ("^BVSP", 2), "S&P 500": ("^GSPC", 2), "Dow Jones": ("^DJI", 2), "Nasdaq": ("^IXIC", 2), "DAX (Alem)": ("^GDAXI", 2), "Nikkei (Jap)": ("^N225", 2), "Shanghai (Chi)": ("000001.SS", 2), "Shenzhen (Chi)": ("399001.SZ", 2), "Merval (Arg)": ("^MERV", 2)}
-acoes_br_list = ["AGRO3.SA", "AMOB3.SA", "BBAS3.SA", "BBDC3.SA", "BBSE3.SA", "BRSR6.SA", "B3SA3.SA", "CMIG3.SA", "CXSE3.SA", "EGIE3.SA", "EQTL3.SA", "EZTC3.SA", "FLRY3.SA", "GMAT3.SA", "ITSA4.SA", "KEPL3.SA", "KLBN3.SA", "LEVE3.SA", "PETR3.SA", "PRIO3.SA", "PSSA3.SA", "RAIZ4.SA", "RANI3.SA", "SAPR4.SA", "SBFG3.SA", "SMTO3.SA", "SOJA3.SA", "SUZB3.SA", "TAEE11.SA", "TTEN3.SA", "VAMO3.SA", "VIVT3.SA", "WEGE3.SA", "ETHE11.SA", "GOLD11.SA", "QSOL11.SA", "QBTC11.SA"]
-acoes_br_dict = {ticker.replace(".SA", ""): (ticker, 2) for ticker in acoes_br_list}
-acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA", "MU", "VZ", "T", "HD", "SHOP", "DIS", "SPG", "ANET", "ICE", "KO", "EQNR", "EPR", "WFC", "VICI", "O", "CPRT", "ASX", "CEPU", "NVO", "PLTR", "JBL", "QCOM", "AAPL", "MSFT", "BAC", "ORCL", "EQT", "MNST", "CVS", "HUYA", "GPC", "PFE", "ROKU", "DIBS", "LEG", "MBUU", "FVRR"]
-acoes_usa_dict = {ticker: (ticker, 2) for ticker in acoes_usa_list}
+macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F", 2), "Petróleo": ("BZ=F", 2), "Bitcoin": ("BTC-USD", 2), "S&P 500": ("^GSPC", 2), "Ibovespa": ("^BVSP", 2), "Nasdaq": ("^IXIC", 2)}
+acoes_br_list = ["AGRO3.SA", "AMOB3.SA", "BBAS3.SA", "BBDC3.SA", "BBSE3.SA", "BRSR6.SA", "B3SA3.SA", "CMIG3.SA", "CXSE3.SA", "EGIE3.SA", "EQTL3.SA", "EZTC3.SA", "FLRY3.SA", "GMAT3.SA", "ITSA4.SA", "KEPL3.SA", "KLBN3.SA", "LEVE3.SA", "PETR3.SA", "PRIO3.SA", "PSSA3.SA", "RAIZ4.SA", "RANI3.SA", "SAPR4.SA", "SBFG3.SA", "SMTO3.SA", "SOJA3.SA", "SUZB3.SA", "TAEE11.SA", "TTEN3.SA", "VAMO3.SA", "VIVT3.SA", "WEGE3.SA"]
+acoes_br_dict = {t.replace(".SA", ""): (t, 2) for t in acoes_br_list}
+acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "TSLA", "AAPL", "MSFT", "BAC", "WFC", "HD", "CVS", "DIS", "GPC", "VICI", "EQT"]
+acoes_usa_dict = {t: (t, 2) for t in acoes_usa_list}
 
-# --- CRIAÇÃO DAS ABAS ---
-aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_analises, aba_simulador = st.tabs([
-    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🎯 Raio-X & IA", "🎛️ Simulador"
+# --- CRIAÇÃO DAS ABAS (COM A NOVA ABA DE RANKINGS) ---
+aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_rankings, aba_simulador, aba_analises = st.tabs([
+    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🏆 Rankings", "🎛️ Simulador", "🎯 Raio-X & IA"
 ])
 
 def renderizar_grid_cards(dicionario_ativos, mercado):
@@ -397,9 +260,7 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                                 fig = go.Figure(go.Scatter(x=precos.index, y=precos, mode='lines', line=dict(color=cor_linha, width=2), fill='tozeroy', fillcolor=cor_preenchimento))
                                 fig.update_layout(template="plotly_dark", height=80, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-                                if st.button("🔍 Histórico", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
-                                    abrir_historico_simples(ticker, nome_exibicao)
-                                st.caption(f"⚡ {hora_consulta} | {fonte}")
+                                if st.button("🔍", key=f"btn_hist_{ticker}_{mercado}"): abrir_historico_simples(ticker, nome_exibicao)
 
 with aba_macro: renderizar_grid_cards(macro_dict, "Macro")
 with aba_br: renderizar_grid_cards(acoes_br_dict, "BR")
@@ -413,17 +274,37 @@ dados_base_carregados = False
 if os.path.exists(arquivo_csv):
     df = pd.read_csv(arquivo_csv, sep=";")
     
-    # Injeta Preços Fresquinhos para atualizar tabelas
+    # Injeta Preços Fresquinhos
     df = injetar_precos_ao_vivo(df)
     dados_base_carregados = True
     
-    # Fundamentos (usando o preço atualizado da tela)
+    # --- CÁLCULO DE TODOS OS ALVOS E MARGENS ---
     df['Dividendo_Pago'] = df['Preco'] * (df['Div_Yield_%'] / 100)
     df['Teto_Bazin'] = df['Dividendo_Pago'] / 0.06
     df['Margem_Bazin_%'] = np.where(df['Teto_Bazin'] > 0, ((df['Teto_Bazin'] - df['Preco']) / df['Preco']) * 100, 0)
+    
     df['Justo_Graham'] = np.where((df['LPA'] > 0) & (df['VPA'] > 0), np.sqrt(22.5 * df['LPA'] * df['VPA']), 0)
     df['Margem_Graham_%'] = np.where(df['Justo_Graham'] > 0, ((df['Justo_Graham'] - df['Preco']) / df['Preco']) * 100, 0)
 
+    # SOBERANIA DO COFRE DE CONSENSO
+    if os.path.exists(arquivo_cofre):
+        df_cofre = pd.read_csv(arquivo_cofre, sep=";")
+        df_cofre = df_cofre.drop_duplicates(subset=['Ticker'], keep='last')
+        df = pd.merge(df, df_cofre[['Ticker', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas', 'Recomendacao']], on='Ticker', how='left')
+    
+    for col in ['Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas']:
+        if col not in df.columns: df[col] = 0
+        df[col] = df[col].fillna(0)
+    
+    if 'Recomendacao' not in df.columns: df['Recomendacao'] = 'N/A'
+    df['Metodo_Valuation'] = np.where(df['Val_Base'] > 0, "Consenso Analistas", "Sem Cobertura")
+    
+    # MARGENS DE UPSIDE (CONSENSO)
+    df['Margem_Pessimista_%'] = np.where(df['Val_Pessimista'] > 0, ((df['Val_Pessimista'] - df['Preco']) / df['Preco']) * 100, -999)
+    df['Margem_Base_%'] = np.where(df['Val_Base'] > 0, ((df['Val_Base'] - df['Preco']) / df['Preco']) * 100, -999)
+    df['Margem_Otimista_%'] = np.where(df['Val_Otimista'] > 0, ((df['Val_Otimista'] - df['Preco']) / df['Preco']) * 100, -999)
+
+    # SAÚDE E QUALIDADE
     df['F_Score'] = 0
     df.loc[df['ROE_%'] > 0, 'F_Score'] += 1
     df.loc[df['Margem_Liquida_%'] > 5, 'F_Score'] += 1
@@ -437,30 +318,77 @@ if os.path.exists(arquivo_csv):
     df.loc[mask_magica, 'Rank_EV_EBIT'] = df.loc[mask_magica, 'EV_EBIT'].rank(ascending=True)
     df.loc[mask_magica, 'Pontuacao_Magica'] = df['Rank_ROIC'] + df['Rank_EV_EBIT']
 
-    # --- SOBERANIA DO COFRE DE CONSENSO ---
-    if os.path.exists(arquivo_cofre):
-        df_cofre = pd.read_csv(arquivo_cofre, sep=";")
-        df_cofre = df_cofre.drop_duplicates(subset=['Ticker'], keep='last')
-        df = pd.merge(df, df_cofre[['Ticker', 'Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas', 'Recomendacao']], on='Ticker', how='left')
-    
-    # Preenche com 0 quem não tem consenso
-    for col in ['Val_Pessimista', 'Val_Base', 'Val_Otimista', 'Num_Analistas']:
-        if col not in df.columns: df[col] = 0
-        df[col] = df[col].fillna(0)
-    
-    if 'Recomendacao' not in df.columns: df['Recomendacao'] = 'N/A'
-    
-    # Classificação purista (Wall Street / Faria Lima)
-    df['Metodo_Valuation'] = np.where(df['Val_Base'] > 0, "Consenso Analistas", "Sem Cobertura")
-    df['Justo_Mercado'] = df['Val_Base']
+    # --- ABA DE RANKINGS DINÂMICOS (SCREENER SEPARADO POR PAÍS) ---
+    with aba_rankings:
+        st.header("🏆 Rankings de Pechinchas (Screener)")
+        st.write("Ações separadas por mercado para garantir comparabilidade justa de risco e prêmio.")
+
+        filtro_metodo = st.selectbox(
+            "Selecione a Metodologia (Ordenação):",
+            ["Consenso Base (Média de Mercado)",
+             "Consenso Pessimista (Conservador)",
+             "Consenso Otimista (Cenário Azul)",
+             "Teto de Bazin (Foco em Renda/Dividendos)",
+             "Justo de Graham (Foco em Patrimônio/Lucro)"]
+        )
+
+        df_rank = df.copy()
+
+        # Mapeando a escolha do usuário para as colunas
+        if filtro_metodo == "Consenso Base (Média de Mercado)":
+            col_alvo, col_margem = 'Val_Base', 'Margem_Base_%'
+        elif filtro_metodo == "Consenso Pessimista (Conservador)":
+            col_alvo, col_margem = 'Val_Pessimista', 'Margem_Pessimista_%'
+        elif filtro_metodo == "Consenso Otimista (Cenário Azul)":
+            col_alvo, col_margem = 'Val_Otimista', 'Margem_Otimista_%'
+        elif filtro_metodo == "Teto de Bazin (Foco em Renda/Dividendos)":
+            col_alvo, col_margem = 'Teto_Bazin', 'Margem_Bazin_%'
+        elif filtro_metodo == "Justo de Graham (Foco em Patrimônio/Lucro)":
+            col_alvo, col_margem = 'Justo_Graham', 'Margem_Graham_%'
+
+        # Filtra só quem tem dados válidos para a métrica escolhida
+        df_rank = df_rank[df_rank[col_alvo] > 0]
+
+        def format_money(r, c):
+            simb = "R$" if "Fundamentus" in str(r['Origem']) else "$"
+            return f"{simb} {r[c]:.2f}"
+
+        # DIVISÃO POR MERCADO
+        df_br = df_rank[df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
+        df_usa = df_rank[~df_rank['Origem'].str.contains("Fundamentus|BRAPI", na=False)].copy()
+
+        def mostrar_tabela_ranking(df_sub, titulo):
+            st.subheader(titulo)
+            st.divider()
+            if df_sub.empty:
+                st.info("Nenhum ativo atende aos critérios nesta métrica.")
+                return
+            
+            # Ordena do maior desconto para o menor
+            df_sub = df_sub.sort_values(by=col_margem, ascending=False).reset_index(drop=True)
+            df_sub.index = df_sub.index + 1
+            df_sub['Posição'] = df_sub.index.astype(str) + "º"
+            
+            df_sub['Preço Atual'] = df_sub.apply(lambda r: format_money(r, 'Preco'), axis=1)
+            df_sub['Preço Alvo'] = df_sub.apply(lambda r: format_money(r, col_alvo), axis=1)
+            df_sub['Upside / Margem'] = df_sub[col_margem].apply(lambda x: f"+{x:.2f}%" if x > 0 else f"{x:.2f}%")
+
+            cols_to_show = ['Posição', 'Ticker', 'Preço Atual', 'Preço Alvo', 'Upside / Margem', 'Saude_Visual']
+            if "Consenso" in filtro_metodo:
+                cols_to_show.extend(['Num_Analistas', 'Recomendacao'])
+
+            st.dataframe(df_sub[cols_to_show], use_container_width=True, hide_index=True)
+
+        # Exibe as tabelas empilhadas (melhor visualização no mobile e no desktop)
+        mostrar_tabela_ranking(df_br, "🇧🇷 Top Oportunidades: Brasil")
+        st.write("") # Espaçamento
+        mostrar_tabela_ranking(df_usa, "🇺🇸 Top Oportunidades: Wall Street")
 
     # --- ABA DE VALUATION PRO ---
     with aba_valuation:
         st.header("🧮 Valuation Institucional (Puro Consenso)")
-        st.write("Visão estrita de Faria Lima e Wall Street. Ativos sem cobertura de mercado não terão valores inventados.")
         
         df_cenarios = df.copy()
-        
         def formata_val(linha, col):
             if pd.isna(linha[col]) or linha[col] <= 0: return "---"
             simb = "R$" if "Fundamentus" in str(linha['Origem']) else "$"
@@ -470,10 +398,7 @@ if os.path.exists(arquivo_csv):
         df_cenarios['🔴 Alvo Pessimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Pessimista'), axis=1)
         df_cenarios['🟡 Alvo Base'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Base'), axis=1)
         df_cenarios['🟢 Alvo Otimista'] = df_cenarios.apply(lambda r: formata_val(r, 'Val_Otimista'), axis=1)
-        
-        # Ordena colocando quem tem margem primeiro, e quem não tem cobertura no final
-        df_cenarios['Margem_Base'] = np.where(df_cenarios['Val_Base'] > 0, ((df_cenarios['Val_Base'] - df_cenarios['Preco']) / df_cenarios['Preco']) * 100, -999)
-        df_cenarios = df_cenarios.sort_values(by='Margem_Base', ascending=False)
+        df_cenarios = df_cenarios.sort_values(by='Margem_Base_%', ascending=False)
         
         st.dataframe(
             df_cenarios[['Ticker', 'Preco Atual', '🔴 Alvo Pessimista', '🟡 Alvo Base', '🟢 Alvo Otimista', 'Num_Analistas', 'Recomendacao', 'Metodo_Valuation']], 
@@ -490,7 +415,7 @@ if os.path.exists(arquivo_csv):
             simbolo = "R$" if "Fundamentus" in str(linha['Origem']) else "$"
             return f"{simbolo} {valor:.2f}"
 
-        for col in ['Preco', 'Teto_Bazin', 'Justo_Graham', 'Justo_Mercado']:
+        for col in ['Preco', 'Teto_Bazin', 'Justo_Graham']:
             df_fundo[col] = df_fundo.apply(lambda row: formatar_moeda(row, col), axis=1)
             
         st.dataframe(df_fundo[['Ticker', 'Preco', 'Saude_Visual', 'ROIC_%', 'Teto_Bazin', 'Justo_Graham']], use_container_width=True, hide_index=True)
@@ -498,7 +423,6 @@ if os.path.exists(arquivo_csv):
     # --- ABA SIMULADOR ---
     with aba_simulador:
         st.header("🎛️ Laboratório de Estratégia Ponderada")
-        st.write("Ajuste os pesos. Ativos sem cobertura de mercado receberão nota 0 no quesito 'Consenso'.")
         
         with st.expander("Defina seus Pesos de Decisão (0 a 100%)", expanded=True):
             c1, c2, c3, c4, c5 = st.columns(5)
@@ -509,10 +433,12 @@ if os.path.exists(arquivo_csv):
             w_dcf = c5.slider("Mercado (Consenso)", 0, 100, 20)
 
         df_sim = df.copy()
-        df_sim['Margem_Mercado_%'] = np.where(df_sim['Val_Base'] > 0, ((df_sim['Val_Base'] - df_sim['Preco']) / df_sim['Preco']) * 100, 0)
         df_sim['N_Graham'] = df_sim['Margem_Graham_%'].rank(pct=True) * 100
         df_sim['N_Bazin'] = df_sim['Margem_Bazin_%'].rank(pct=True) * 100
-        df_sim['N_Mercado'] = df_sim['Margem_Mercado_%'].rank(pct=True) * 100
+        
+        df_sim['Margem_Temp_Mercado'] = np.where(df_sim['Margem_Base_%'] != -999, df_sim['Margem_Base_%'], 0)
+        df_sim['N_Mercado'] = df_sim['Margem_Temp_Mercado'].rank(pct=True) * 100
+        
         df_sim['N_Magic'] = df_sim.get('Pontuacao_Magica', pd.Series([0]*len(df_sim))).fillna(0).rank(ascending=False, pct=True) * 100
         df_sim['N_FScore'] = (df_sim['F_Score'] / 5) * 100
 
@@ -533,24 +459,18 @@ if os.path.exists(arquivo_csv):
 else: 
     st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
 
-# --- ABA DE ANÁLISES (TÉCNICA + IA) ---
+# --- ABA DE ANÁLISES ---
 with aba_analises:
     st.header("🎯 Central de Inteligência Profissional")
-    st.write("Selecione um ativo para realizar análises cruzadas sob demanda.")
-    
     col1, col2, col3 = st.columns([2, 1, 1])
     todos_ativos = [t for t in acoes_br_list + acoes_usa_list if "11.SA" not in t]
     ativo_selecionado = col1.selectbox("Escolha a Ação:", sorted(todos_ativos))
     
-    if col2.button("📈 Abrir Raio-X Técnico (Gráficos)", use_container_width=True):
-        abrir_raio_x(ativo_selecionado)
-        
-    if col3.button("🧠 Gerar Veredito IA", use_container_width=True):
+    if col2.button("📈 Abrir Raio-X Técnico", use_container_width=True): abrir_raio_x(ativo_selecionado)
+    if col3.button("🧠 Gerar Veredito IA", use_container_width=True): 
         dados_envio = None
         if dados_base_carregados:
-            ticker_limpo = ativo_selecionado.replace(".SA", "")
-            linha = df[df['Ticker'].str.contains(ticker_limpo, na=False)]
-            if not linha.empty:
-                dados_envio = linha.iloc[0].to_dict()
-        
+            t_limpo = ativo_selecionado.replace(".SA", "")
+            linha = df[df['Ticker'].str.contains(t_limpo, na=False)]
+            if not linha.empty: dados_envio = linha.iloc[0].to_dict()
         gerar_relatorio_ia(ativo_selecionado, dados_envio)
