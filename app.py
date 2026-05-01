@@ -226,8 +226,9 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
                     noticias_validas.append(f"- Data: {dt_pub} | Fonte: {fonte} | Título: {n.get('title')}\n")
         except Exception: pass
 
+        # Garantindo que a IA receba bastante contexto para conseguir garimpar 10 notícias (5 boas e 5 ruins)
         if len(noticias_validas) > 5:
-            texto_noticias = "".join(noticias_validas[:30])
+            texto_noticias = "".join(noticias_validas[:40]) 
         else:
             termo_busca = ticker.replace(".SA", "")
             params = "hl=en-US&gl=US&ceid=US:en" if is_usa else "hl=pt-BR&gl=BR&ceid=BR:pt-419"
@@ -236,7 +237,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
                 resp = requests.get(url_news, timeout=10)
                 if resp.status_code == 200:
                     root = ET.fromstring(resp.text)
-                    for item in root.findall('.//item')[:30]:
+                    for item in root.findall('.//item')[:40]:
                         t = item.find('title').text if item.find('title') is not None else ""
                         d = item.find('pubDate').text[5:16] if item.find('pubDate') is not None else "Recente"
                         f = item.find('source').text if item.find('source') is not None else "Portal Financeiro"
@@ -290,8 +291,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         REGRA DE FORMATAÇÃO E ESTILO (INEGOCIÁVEL):
         1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$'.
         2. Na Matriz SWOT, você DEVE fornecer EXATAMENTE 3 tópicos com marcadores (*) para cada categoria.
-        3. Nas Notícias, pule uma linha entre a Manchete e o 'Resumo do Analista'.
-        4. Avalie com extremo ceticismo se a empresa estiver 'Sem Cobertura' de mercado.
+        3. Avalie com extremo ceticismo se a empresa estiver 'Sem Cobertura' de mercado.
         
         A sua resposta DEVE seguir estritamente a estrutura abaixo:
         
@@ -317,7 +317,7 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         * [Ameaça 3]
         
         ## 2. Raio-X do Balanço (Foco Operacional - Referência: Balanço de {data_balanco_str})
-        REGRA RIGOROSA: NÃO mencione as palavras "F-Score", "ROIC", "Valuation", nem cite as notas matemáticas. Leia os fundamentos operacionais implícitos da empresa no mundo real com base em seu conhecimento da economia atual e das notícias.
+        REGRA RIGOROSA: NÃO mencione as palavras "F-Score", "ROIC", "Valuation", nem cite as notas matemáticas. Leia os fundamentos operacionais implícitos da empresa no mundo real.
         
         **Pontos Positivos:**
         * ✅ [Fato positivo real 1 sobre a operação/negócio]
@@ -330,20 +330,21 @@ def gerar_relatorio_ia(ticker, dados_fundos=None):
         * ⚠️ [Fato negativo/risco real 3 sobre a operação/negócio]
         
         ## 3. Termômetro de Notícias
-        Selecione as 3 manchetes reais mais relevantes.
+        Selecione as 10 manchetes mais relevantes do bloco de notícias e separe-as rigorosamente. Caso o contexto não tenha 5 de cada, extraia o máximo possível que se encaixe na categoria.
         
-        **Notícias Recentes:**
+        **🟢 Top 5 Notícias Positivas/Otimistas:**
         * **[Data] - [Fonte] - [Manchete]**
         
           **Resumo do Analista:** [Explicação fluida e separada da manchete].
         
+        (Repita o formato acima para listar 5 notícias positivas)
+        
+        **🔴 Top 5 Notícias Negativas/Riscos:**
         * **[Data] - [Fonte] - [Manchete]**
         
           **Resumo do Analista:** [Explicação fluida e separada da manchete].
           
-        * **[Data] - [Fonte] - [Manchete]**
-        
-          **Resumo do Analista:** [Explicação fluida e separada da manchete].
+        (Repita o formato acima para listar 5 notícias negativas)
         
         ---
         ## 4. O Quadrante de Decisão
