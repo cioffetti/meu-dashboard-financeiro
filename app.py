@@ -425,10 +425,11 @@ aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_rankings, aba_si
     "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🏆 Rankings", "🎛️ Simulador", "🎯 Raio-X & IA"
 ])
 
-# --- RENDERIZAÇÃO DOS CARDS (ESTÉTICA BLOOMBERG / WALL STREET) ---
+# --- RENDERIZAÇÃO DOS CARDS (COM GRÁFICO CURVO E RODAPÉ DE AUDITORIA) ---
 def renderizar_grid_cards(dicionario_ativos, mercado):
     lista_tickers = [info[0] for info in dicionario_ativos.values()]
     dados_lote, fonte = buscar_dados_em_lote(lista_tickers, mercado)
+    hora_consulta = datetime.now().strftime("%H:%M")
     
     if dados_lote is not None:
         lista_items = list(dicionario_ativos.items())
@@ -442,7 +443,6 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                         ontem = float(precos.iloc[-2])
                         var = ((atual - ontem) / ontem) * 100
                         
-                        # Lógica de Cores da Variação e Gráfico
                         if var >= 0:
                             cor_linha = '#00cc66'
                             cor_preenchimento = 'rgba(0, 204, 102, 0.15)'
@@ -454,7 +454,6 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                             icone_var = "▼"
                             sinal_var = ""
                             
-                        # Descobridor Inteligente de Unidade Financeira
                         if "^" in ticker or ".SS" in ticker or ".SZ" in ticker or ticker == "000001.SS":
                             unidade = "Pts"
                         elif mercado == "BR" or ticker in ["USDBRL=X", "EURBRL=X"]:
@@ -462,7 +461,6 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                         else:
                             unidade = "US$"
                         
-                        # O SEGREDO DO GRÁFICO ONDULADO: Definir o limite mínimo e máximo rigorosamente
                         min_y = precos.min()
                         max_y = precos.max()
                         margem_y = (max_y - min_y) * 0.1
@@ -470,7 +468,6 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
 
                         with cols[j]:
                             with st.container(border=True):
-                                # Cabeçalho do Card com Tipografia Exata da Foto
                                 html_card = f"""
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start; font-family: 'Segoe UI', Arial, sans-serif;">
                                     <div style="display: flex; flex-direction: column; width: 50%;">
@@ -488,8 +485,15 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                                 """
                                 st.markdown(html_card, unsafe_allow_html=True)
                                 
-                                # Gráfico Sparkline Corrigido (Efeito Wavy Garantido)
-                                fig = go.Figure(go.Scatter(x=precos.index, y=precos, mode='lines', line=dict(color=cor_linha, width=2.5), fill='tozeroy', fillcolor=cor_preenchimento))
+                                # O SEGREDO DO GRÁFICO CURVO: shape='spline'
+                                fig = go.Figure(go.Scatter(
+                                    x=precos.index, 
+                                    y=precos, 
+                                    mode='lines', 
+                                    line=dict(color=cor_linha, width=2.5, shape='spline'), 
+                                    fill='tozeroy', 
+                                    fillcolor=cor_preenchimento
+                                ))
                                 fig.update_layout(
                                     template="plotly_dark", 
                                     height=65, 
@@ -503,9 +507,11 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                                 )
                                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                                 
-                                # Botão minimalista
                                 if st.button("🔍 Histórico", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
                                     abrir_historico_simples(ticker, nome_exibicao)
+                                    
+                                # A AUDITORIA VOLTOU!
+                                st.caption(f"⚡ {hora_consulta} | {fonte}")
 
 with aba_macro: renderizar_grid_cards(macro_dict, "Macro")
 with aba_br: renderizar_grid_cards(acoes_br_dict, "BR")
