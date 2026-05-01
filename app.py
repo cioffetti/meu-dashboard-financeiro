@@ -29,7 +29,7 @@ def formatar_br(valor, casas):
     texto = f"{valor:,.{casas}f}"
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- ESTILO CSS GLOBAL PARA TABELAS ---
+# --- ESTILO CSS GLOBAL PARA TABELAS (SEM RECUOS PARA NÃO QUEBRAR O MARKDOWN) ---
 ESTILO_TABELA_PRO = """
 <style>
 .tabela-pro { width: 100%; border-collapse: collapse; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e1e; border-radius: 8px; overflow: hidden; margin-bottom: 20px;}
@@ -551,17 +551,9 @@ if os.path.exists(arquivo_csv):
             df_sub.index = df_sub.index + 1
             df_sub['Posição'] = df_sub.index.astype(str) + "º"
             
-            html = ESTILO_TABELA_PRO + """
-            <table class="tabela-pro">
-              <thead>
-                <tr>
-                  <th>Posição</th>
-                  <th>Ativo</th>
-                  <th>Preço Atual</th>
-                  <th>Preço Alvo</th>
-                  <th>Upside / Margem</th>
-                  <th>Saúde Visual</th>
-            """
+            html = ESTILO_TABELA_PRO + "<table class='tabela-pro'><thead><tr>"
+            html += "<th>Posição</th><th>Ativo</th><th>Preço Atual</th><th>Preço Alvo</th><th>Upside / Margem</th><th>Saúde Visual</th>"
+            
             if "Consenso" in filtro_metodo:
                 html += "<th>Analistas</th><th>Recomendação</th>"
             html += "</tr></thead><tbody>"
@@ -586,19 +578,18 @@ if os.path.exists(arquivo_csv):
                         upside_text = "0.00%"
                         upside_style = "color: #bdc3c7; font-weight: bold;"
 
-                html += f"""
-                <tr>
-                  <td>{row['Posição']}</td>
-                  <td class="tabela-ativo">{row['Ticker']}</td>
-                  <td>{preco_atual}</td>
-                  <td>{preco_alvo}</td>
-                  <td style="{upside_style}">{upside_text}</td>
-                  <td>{row['Saude_Visual']}</td>
-                """
+                html += f"<tr>"
+                html += f"<td style='font-weight: bold; color: #ecf0f1;'>{row['Posição']}</td>"
+                html += f"<td class='tabela-ativo'>{row['Ticker']}</td>"
+                html += f"<td style='font-weight: bold; color: #ecf0f1;'>{preco_atual}</td>"
+                html += f"<td style='font-weight: bold; color: #ecf0f1;'>{preco_alvo}</td>"
+                html += f"<td style='{upside_style}'>{upside_text}</td>"
+                html += f"<td style='font-weight: bold; color: #ecf0f1;'>{row['Saude_Visual']}</td>"
+                
                 if "Consenso" in filtro_metodo:
                     badge = gerar_badge_recomendacao(row['Recomendacao'])
                     analistas = int(row['Num_Analistas']) if pd.notnull(row['Num_Analistas']) else 0
-                    html += f"<td>{analistas}</td><td>{badge}</td>"
+                    html += f"<td style='font-weight: bold; color: #ecf0f1;'>{analistas}</td><td>{badge}</td>"
                 html += "</tr>"
 
             html += "</tbody></table>"
@@ -613,22 +604,9 @@ if os.path.exists(arquivo_csv):
         df_cenarios = df.copy()
         df_cenarios = df_cenarios.sort_values(by='Margem_Base_%', ascending=False).reset_index(drop=True)
         
-        html_val = ESTILO_TABELA_PRO + """
-        <table class="tabela-pro">
-          <thead>
-            <tr>
-              <th>Ativo</th>
-              <th>Preço Atual</th>
-              <th>🔴 Alvo Pessimista</th>
-              <th>🟡 Alvo Base</th>
-              <th>🟢 Alvo Otimista</th>
-              <th>Analistas</th>
-              <th>Recomendação</th>
-              <th>Método</th>
-            </tr>
-          </thead>
-          <tbody>
-        """
+        html_val = ESTILO_TABELA_PRO + "<table class='tabela-pro'><thead><tr>"
+        html_val += "<th>Ativo</th><th>Preço Atual</th><th>🔴 Alvo Pessimista</th><th>🟡 Alvo Base</th><th>🟢 Alvo Otimista</th><th>Analistas</th><th>Recomendação</th><th>Método</th></tr></thead><tbody>"
+        
         for idx, row in df_cenarios.iterrows():
             preco_atual = format_money(row, 'Preco')
             alvo_p = format_money(row, 'Val_Pessimista')
@@ -637,18 +615,17 @@ if os.path.exists(arquivo_csv):
             badge = gerar_badge_recomendacao(row['Recomendacao'])
             analistas = int(row['Num_Analistas']) if pd.notnull(row['Num_Analistas']) else 0
             
-            html_val += f"""
-            <tr>
-              <td class="tabela-ativo">{row['Ticker']}</td>
-              <td>{preco_atual}</td>
-              <td>{alvo_p}</td>
-              <td>{alvo_b}</td>
-              <td>{alvo_o}</td>
-              <td>{analistas}</td>
-              <td>{badge}</td>
-              <td>{row['Metodo_Valuation']}</td>
-            </tr>
-            """
+            html_val += "<tr>"
+            html_val += f"<td class='tabela-ativo'>{row['Ticker']}</td>"
+            html_val += f"<td>{preco_atual}</td>"
+            html_val += f"<td>{alvo_p}</td>"
+            html_val += f"<td>{alvo_b}</td>"
+            html_val += f"<td>{alvo_o}</td>"
+            html_val += f"<td>{analistas}</td>"
+            html_val += f"<td>{badge}</td>"
+            html_val += f"<td>{row['Metodo_Valuation']}</td>"
+            html_val += "</tr>"
+            
         html_val += "</tbody></table>"
         st.markdown(html_val, unsafe_allow_html=True)
 
@@ -657,26 +634,9 @@ if os.path.exists(arquivo_csv):
         st.header("Radar de Valor e Qualidade")
         df_fundo = df.copy().sort_values(by='Pontuacao_Magica', ascending=True).reset_index(drop=True)
         
-        html_fund = ESTILO_TABELA_PRO + """
-        <table class="tabela-pro">
-          <thead>
-            <tr>
-              <th>Ativo</th>
-              <th>Preço</th>
-              <th>Saúde Visual</th>
-              <th>F-Score</th>
-              <th>Score Mágico</th>
-              <th>ROIC</th>
-              <th>ROE</th>
-              <th>EV/EBIT</th>
-              <th>Div Yield</th>
-              <th>Cresc. 5A</th>
-              <th>Teto Bazin</th>
-              <th>Justo Graham</th>
-            </tr>
-          </thead>
-          <tbody>
-        """
+        html_fund = ESTILO_TABELA_PRO + "<table class='tabela-pro'><thead><tr>"
+        html_fund += "<th>Ativo</th><th>Preço</th><th>Saúde Visual</th><th>F-Score</th><th>Score Mágico</th><th>ROIC</th><th>ROE</th><th>EV/EBIT</th><th>Div Yield</th><th>Cresc. 5A</th><th>Teto Bazin</th><th>Justo Graham</th></tr></thead><tbody>"
+        
         for idx, row in df_fundo.iterrows():
             preco = format_money(row, 'Preco')
             bazin = format_money(row, 'Teto_Bazin')
@@ -689,22 +649,21 @@ if os.path.exists(arquivo_csv):
             yield_str = f"{row['Div_Yield_%']:.2f}%" if pd.notnull(row['Div_Yield_%']) else "---"
             cresc = f"{row['Crescimento_5a_%']:.2f}%" if pd.notnull(row['Crescimento_5a_%']) else "---"
             
-            html_fund += f"""
-            <tr>
-              <td class="tabela-ativo">{row['Ticker']}</td>
-              <td>{preco}</td>
-              <td>{row['Saude_Visual']}</td>
-              <td>{row['F_Score']}</td>
-              <td>{score_magico}</td>
-              <td>{roic}</td>
-              <td>{roe}</td>
-              <td>{evebit}</td>
-              <td>{yield_str}</td>
-              <td>{cresc}</td>
-              <td>{bazin}</td>
-              <td>{graham}</td>
-            </tr>
-            """
+            html_fund += "<tr>"
+            html_fund += f"<td class='tabela-ativo'>{row['Ticker']}</td>"
+            html_fund += f"<td>{preco}</td>"
+            html_fund += f"<td>{row['Saude_Visual']}</td>"
+            html_fund += f"<td>{row['F_Score']}</td>"
+            html_fund += f"<td>{score_magico}</td>"
+            html_fund += f"<td>{roic}</td>"
+            html_fund += f"<td>{roe}</td>"
+            html_fund += f"<td>{evebit}</td>"
+            html_fund += f"<td>{yield_str}</td>"
+            html_fund += f"<td>{cresc}</td>"
+            html_fund += f"<td>{bazin}</td>"
+            html_fund += f"<td>{graham}</td>"
+            html_fund += "</tr>"
+            
         html_fund += "</tbody></table>"
         st.markdown(html_fund, unsafe_allow_html=True)
 
@@ -738,35 +697,23 @@ if os.path.exists(arquivo_csv):
         df_sim['Rank'] = df_sim.index.astype(str) + "º"
         df_sim['Veredito'] = pd.cut(df_sim['Nota_Final'], bins=[-1, 40, 75, 100], labels=["Neutro", "Estudo", "Compra Forte"])
 
-        html_sim = ESTILO_TABELA_PRO + """
-        <table class="tabela-pro">
-          <thead>
-            <tr>
-              <th>Rank</th>
-              <th>Ativo</th>
-              <th>Preço Atual</th>
-              <th>Nota Final</th>
-              <th>Veredito</th>
-              <th>Saúde Visual</th>
-            </tr>
-          </thead>
-          <tbody>
-        """
+        html_sim = ESTILO_TABELA_PRO + "<table class='tabela-pro'><thead><tr>"
+        html_sim += "<th>Rank</th><th>Ativo</th><th>Preço Atual</th><th>Nota Final</th><th>Veredito</th><th>Saúde Visual</th></tr></thead><tbody>"
+        
         for idx, row in df_sim.iterrows():
             preco_atual = format_money(row, 'Preco')
             nota = f"{row['Nota_Final']:.1f}/100"
             badge_ver = gerar_badge_veredito(row['Veredito'])
             
-            html_sim += f"""
-            <tr>
-              <td>{row['Rank']}</td>
-              <td class="tabela-ativo">{row['Ticker']}</td>
-              <td>{preco_atual}</td>
-              <td>{nota}</td>
-              <td>{badge_ver}</td>
-              <td>{row['Saude_Visual']}</td>
-            </tr>
-            """
+            html_sim += "<tr>"
+            html_sim += f"<td>{row['Rank']}</td>"
+            html_sim += f"<td class='tabela-ativo'>{row['Ticker']}</td>"
+            html_sim += f"<td>{preco_atual}</td>"
+            html_sim += f"<td>{nota}</td>"
+            html_sim += f"<td>{badge_ver}</td>"
+            html_sim += f"<td>{row['Saude_Visual']}</td>"
+            html_sim += "</tr>"
+            
         html_sim += "</tbody></table>"
         st.markdown(html_sim, unsafe_allow_html=True)
 
