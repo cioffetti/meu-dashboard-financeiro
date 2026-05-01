@@ -29,7 +29,7 @@ def formatar_br(valor, casas):
     texto = f"{valor:,.{casas}f}"
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- ESTILO CSS GLOBAL PARA TABELAS (SEM RECUOS PARA NÃO QUEBRAR O MARKDOWN) ---
+# --- ESTILO CSS GLOBAL PARA TABELAS ---
 ESTILO_TABELA_PRO = """
 <style>
 .tabela-pro { width: 100%; border-collapse: collapse; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e1e; border-radius: 8px; overflow: hidden; margin-bottom: 20px;}
@@ -40,30 +40,38 @@ ESTILO_TABELA_PRO = """
 </style>
 """
 
-# --- MOTOR DE COTAÇÕES EM LOTE (CARDS DA PÁGINA INICIAL) ---
+# --- MOTOR DE COTAÇÕES EM LOTE (AGORA COM HISTÓRICO DE 10 DIAS BLINDADO) ---
 @st.cache_data(ttl=300)
 def buscar_dados_em_lote(lista_tickers, mercado="Macro"):
-    if mercado == "BR" and BRAPI_KEY:
-        try:
-            tickers_limpos = [t.replace(".SA", "") for t in lista_tickers]
-            url = f"https://brapi.dev/api/quote/{','.join(tickers_limpos)}?token={BRAPI_KEY}"
-            res = requests.get(url, timeout=5).json()
-            if 'results' in res:
-                precos = {item['symbol'] + ".SA": item.get('regularMarketPrice') for item in res['results']}
-                df = pd.DataFrame(list(precos.values()), index=list(precos.keys()), columns=['Close'])
-                return df.T, "BRAPI"
-        except Exception: pass
-            
     try:
-        tickers_str = " ".join(lista_tickers)
-        dados = yf.download(tickers_str, period="7d", interval="1d", progress=False)
+        # Puxa 14 dias para garantir que teremos 10 pregões válidos (ignorando fins de semana)
+        dados = yf.download(" ".join(lista_tickers), period="14d", interval="1d", progress=False)
         fechamentos = pd.DataFrame(dados['Close']) if isinstance(dados['Close'], pd.Series) else dados['Close']
         if len(lista_tickers) == 1: fechamentos.columns = lista_tickers
-        return fechamentos, "Yahoo Finance"
+        
+        fonte_str = "Yahoo Finance"
+        
+        # Injeta cotação ao vivo da Brapi apenas na ponta final do gráfico
+        if mercado == "BR" and BRAPI_KEY:
+            try:
+                tickers_limpos = [t.replace(".SA", "") for t in lista_tickers]
+                url = f"https://brapi.dev/api/quote/{','.join(tickers_limpos)}?token={BRAPI_KEY}"
+                res = requests.get(url, timeout=5).json()
+                if 'results' in res:
+                    for item in res['results']:
+                        t_yf = item['symbol'] + ".SA"
+                        preco_live = item.get('regularMarketPrice')
+                        if t_yf in fechamentos.columns and preco_live is not None:
+                            fechamentos.loc[fechamentos.index[-1], t_yf] = preco_live
+                    fonte_str = "BRAPI + YF"
+            except: pass
+            
+        # Retorna estritamente os últimos 10 pregões para o sparkline ficar uniforme
+        return fechamentos.tail(10), fonte_str
     except Exception:
         return None, "ERRO"
 
-# --- O TRADUTOR DE PREÇOS AO VIVO ---
+# --- O TRADUTOR DE PREÇOS AO VIVO (BASES DE DADOS) ---
 @st.cache_data(ttl=300)
 def injetar_precos_ao_vivo(df_base):
     df_atualizado = df_base.copy()
@@ -420,7 +428,7 @@ aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_rankings, aba_si
     "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🏆 Rankings", "🎛️ Simulador", "🎯 Raio-X & IA"
 ])
 
-# --- RENDERIZAÇÃO DOS CARDS ---
+# --- RENDERIZAÇÃO DOS CARDS REVISADA (ESTÉTICA WALL STREET) ---
 def renderizar_grid_cards(dicionario_ativos, mercado):
     lista_tickers = [info[0] for info in dicionario_ativos.values()]
     dados_lote, fonte = buscar_dados_em_lote(lista_tickers, mercado)
@@ -437,15 +445,54 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                         atual = float(precos.iloc[-1])
                         ontem = float(precos.iloc[-2])
                         var = ((atual - ontem) / ontem) * 100
-                        cor_linha = '#00FFCC' if var >= 0 else '#FF4B4B'
-                        cor_preenchimento = 'rgba(0, 255, 204, 0.1)' if var >= 0 else 'rgba(255, 75, 75, 0.1)'
+                        
+                        # Lógica de Cores da Variação e Gráfico
+                        if var >= 0:
+                            cor_linha = '#00cc66'
+                            cor_preenchimento = 'rgba(0, 204, 102, 0.15)'
+                            icone_var = "▲"
+                            sinal_var = "+"
+                        else:
+                            cor_linha = '#ff4b4b'
+                            cor_preenchimento = 'rgba(255, 75, 75, 0.15)'
+                            icone_var = "▼"
+                            sinal_var = ""
+                            
+                        # Descobridor Inteligente de Unidade Financeira
+                        if "^" in ticker or ".SS" in ticker or ".SZ" in ticker or ticker == "000001.SS":
+                            unidade = "Pts"
+                        elif mercado == "BR" or ticker in ["USDBRL=X", "EURBRL=X"]:
+                            unidade = "R$"
+                        else:
+                            unidade = "US$"
                         
                         with cols[j]:
                             with st.container(border=True):
-                                st.metric(label=nome_exibicao, value=formatar_br(atual, casas), delta=f"{var:.2f}%".replace(".", ","))
-                                fig = go.Figure(go.Scatter(x=precos.index, y=precos, mode='lines', line=dict(color=cor_linha, width=2), fill='tozeroy', fillcolor=cor_preenchimento))
-                                fig.update_layout(template="plotly_dark", height=80, margin=dict(l=0,r=0,t=0,b=0), xaxis_visible=False, yaxis_visible=False, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+                                # Cabeçalho do Card em HTML Customizado
+                                html_card = f"""
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: -10px;">
+                                    <div style="display: flex; flex-direction: column; max-width: 60%;">
+                                        <span style="color: #ecf0f1; font-weight: 800; font-size: 16px; line-height: 1.2;">{nome_exibicao}</span>
+                                        <span style="color: #7f8c8d; font-size: 11px; margin-top: 2px;">{ticker}</span>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; align-items: flex-end;">
+                                        <div style="color: #ffffff; font-weight: 900; font-size: 20px; line-height: 1.1;">
+                                            <span style="font-size: 12px; font-weight: bold; margin-right: 2px; color: #ecf0f1; vertical-align: top;">{unidade}</span>{formatar_br(atual, casas)}
+                                        </div>
+                                        <div style="color: {cor_linha}; font-size: 12px; font-weight: bold; margin-top: 4px;">
+                                            {icone_var} {sinal_var}{var:.2f}%
+                                        </div>
+                                    </div>
+                                </div>
+                                """
+                                st.markdown(html_card, unsafe_allow_html=True)
+                                
+                                # Gráfico Sparkline Acoplado e Sem Margens
+                                fig = go.Figure(go.Scatter(x=precos.index, y=precos, mode='lines', line=dict(color=cor_linha, width=2.5), fill='tozeroy', fillcolor=cor_preenchimento))
+                                fig.update_layout(template="plotly_dark", height=70, margin=dict(l=0,r=0,t=5,b=0), xaxis_visible=False, yaxis_visible=False, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                                
+                                # Botões Inferiores
                                 if st.button("🔍 Histórico", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
                                     abrir_historico_simples(ticker, nome_exibicao)
                                 st.caption(f"⚡ {hora_consulta} | {fonte}")
