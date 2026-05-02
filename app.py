@@ -54,7 +54,7 @@ def buscar_dados_em_lote(lista_tickers, mercado="Macro"):
         if mercado == "BR" and BRAPI_KEY:
             try:
                 tickers_limpos = [t.replace(".SA", "") for t in lista_tickers]
-                url = f"https://brapi.dev/api/quote/{','.join(tickers_limpos)}?token={BRAPI_KEY}"
+                url = f"[https://brapi.dev/api/quote/](https://brapi.dev/api/quote/){','.join(tickers_limpos)}?token={BRAPI_KEY}"
                 res = requests.get(url, timeout=5).json()
                 if 'results' in res:
                     for item in res['results']:
@@ -252,7 +252,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             else:
                 termo_busca = ticker.replace(".SA", "")
                 params = "hl=en-US&gl=US&ceid=US:en" if is_usa else "hl=pt-BR&gl=BR&ceid=BR:pt-419"
-                url_news = f"https://news.google.com/rss/search?q={termo_busca}+stock+market&{params}" if is_usa else f"https://news.google.com/rss/search?q={termo_busca}+ação+mercado&{params}"
+                url_news = f"[https://news.google.com/rss/search?q=](https://news.google.com/rss/search?q=){termo_busca}+stock+market&{params}" if is_usa else f"[https://news.google.com/rss/search?q=](https://news.google.com/rss/search?q=){termo_busca}+ação+mercado&{params}"
                 try:
                     resp = requests.get(url_news, timeout=10)
                     if resp.status_code == 200:
@@ -278,31 +278,32 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             Alvo Otimista: {moeda_ia} {v_otimista:.2f}
             """
 
-            # 3. NOVO PROMPT AVANÇADO (ANALISTA SÊNIOR INDEPENDENTE)
+            # 3. NOVO PROMPT AVANÇADO (ANALISTA SÊNIOR INDEPENDENTE + VISÃO DE MERCADO)
             prompt = f"""
             Você é um analista de investimento sênior especializado em inteligência setorial, análise competitiva e efetuar valuation de ativos. 
-            Sua missão é realizar uma pesquisa profunda sobre o ativo {ticker} de forma INDEPENDENTE, focando na realidade da empresa e não em viés de terceiros/corretoras.
-            A pesquisa deve ser feita, sempre que possível, com base em fontes confiáveis e atualizadas (CVM, SEC, Morningstar, IBGE, etc.).
+            Sua missão é realizar uma pesquisa profunda sobre o ativo {ticker}.
+            Importante: A pesquisa deve ser feita, sempre que possível, com base em fontes confiáveis e atualizadas (CVM, SEC, Morningstar, Wall St Journal, IBGE, Statista, etc).
 
             Abaixo estão os dados técnicos, de valuation e as notícias REAIS coletadas:
             {contexto_dados}
             MANCHETES: {texto_noticias}
 
-            DIRETRIZES DA ANÁLISE:
-            Parte 1 – Resumir relatórios financeiros e analisar tendências: Resuma os principais destaques financeiros e áreas de preocupação. Analise tendências recorrentes em receitas, despesas e lucro líquido dos últimos anos.
-            Parte 2 – Análise de ativos: Realize uma análise profunda considerando indicadores técnicos fornecidos, correlação com índices e impactos macroeconômicos (comportamento em crises e crescimento). Avalie indicadores financeiros (ROE, ROIC, Margem EBITDA, Dívida/EBITDA, crescimento de receita) e efetue a Matriz SWOT.
+            DIRETRIZES DA ANÁLISE INDEPENDENTE:
+            Parte 1 – Resumir relatórios financeiros e analisar tendências: Resuma os principais destaques financeiros. Analise tendências recorrentes em receitas, despesas e lucro líquido dos últimos anos.
+            Parte 2 – Análise de ativos: Realize uma análise profunda considerando indicadores técnicos, correlação com índices e impactos macroeconômicos (comportamento em crises e crescimento). Avalie ROE, ROIC, Margem EBITDA, Dívida/EBITDA e crescimento de receita. Efetue a Matriz SWOT.
 
-            Você DEVE retornar APENAS um objeto JSON válido (sem marcações markdown como ```json), com a exata estrutura abaixo:
+            Você DEVE retornar APENAS um objeto JSON válido, sem NENHUMA marcação de markdown, com a exata estrutura abaixo:
             {{
               "diagnostico_grafico_texto": "1 frase resumindo a análise técnica, volatilidade e correlação do ativo.",
-              "analise_tendencia_fundamental": "1 parágrafo robusto com sua análise independente do momento da empresa, saúde operacional e macroeconomia.",
+              "visao_mercado": "1 parágrafo resumindo a percepção atual do mercado, analistas de corretoras e o sentimento geral das notícias.",
+              "analise_independente_ia": "1 parágrafo robusto com sua análise INDEPENDENTE do momento da empresa, saúde operacional e macroeconomia (aplicando a Parte 1 e 2 das diretrizes).",
               "balanco_pontos_positivos": [
-                "Fato financeiro/operacional real 1 (focado na empresa, ex: aumento de receita, lucro)", 
+                "Fato financeiro/operacional real 1", 
                 "Fato financeiro/operacional real 2", 
                 "Fato financeiro/operacional real 3"
               ],
               "balanco_pontos_negativos": [
-                "Risco/fato negativo real 1 (focado na empresa, ex: queda de margem, alta dívida, macroeconomia)", 
+                "Risco/fato negativo real 1", 
                 "Risco/fato negativo real 2", 
                 "Risco/fato negativo real 3"
               ],
@@ -312,9 +313,9 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                 "O": ["Oportunidade 1", "Oportunidade 2", "Oportunidade 3"],
                 "T": ["Ameaça 1", "Ameaça 2", "Ameaça 3"]
               }},
-              "tese_pessimista": "1 parágrafo com a tese de baixa baseada em fundamentos independentes e riscos.",
-              "tese_base": "1 parágrafo com a tese de preço justo baseada na saúde operacional real.",
-              "tese_otimista": "1 parágrafo com a tese de alta baseada em fundamentos e macroeconomia.",
+              "tese_pessimista": "1 parágrafo justificando por que a ação pode cair para o alvo pessimista.",
+              "tese_base": "1 parágrafo justificando o preço alvo base.",
+              "tese_otimista": "1 parágrafo justificando o potencial de alta para o alvo otimista.",
               "noticias_positivas": [
                 {{"fonte": "Nome", "manchete": "Título", "resumo": "1 linha de explicação"}}
               ],
@@ -327,8 +328,9 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             model = genai.GenerativeModel('gemini-2.5-flash-lite')
             response = model.generate_content(prompt)
             
-            raw_json = response.text.replace("
-```json", "").replace("```", "").strip()
+            # Limpeza cirúrgica do JSON sem escrever backticks diretamente na string (imune ao bug de copy/paste do Markdown)
+            crase = chr(96)
+            raw_json = response.text.replace(f"{crase}{crase}{crase}json", "").replace(f"{crase}{crase}{crase}", "").strip()
             ia_data = json.loads(raw_json)
 
             # 4. PREPARAÇÃO DOS DADOS DO DASHBOARD
@@ -369,7 +371,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             swot_o = '<br>• '.join([''] + ia_data.get('swot', {}).get('O', []))
             swot_t = '<br>• '.join([''] + ia_data.get('swot', {}).get('T', []))
 
-            # HTML SEM IDENTAÇÃO COM RENDERIZAÇÃO BLINDADA
+            # HTML SEM NENHUMA INDENTAÇÃO COM RENDERIZAÇÃO BLINDADA + AS DUAS SEÇÕES DE ANÁLISE
             dashboard_html = f"""<style>
 .dash-bg {{ background-color: #121212; color: #ecf0f1; font-family: 'Segoe UI', Arial, sans-serif; padding: 15px; border-radius: 8px; font-size: 14px; }}
 .aviso-badge {{ background-color: #1a252f; border: 1px solid #3498db; color: #3498db; text-align: center; padding: 8px; border-radius: 4px; font-weight: bold; margin-bottom: 15px; }}
@@ -433,8 +435,10 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
 <div class="kpi-item"><span class="label">Margem Líquida</span><span class="val">{margem_liq}</span></div>
 <div class="kpi-item"><span class="label">ROE</span><span class="val">{roe}</span></div>
 </div>
-<div class="section-title">🧠 DIAGNÓSTICO SÊNIOR & INTELIGÊNCIA SETORIAL</div>
-<div class="text-box">{ia_data.get('analise_tendencia_fundamental', '')}</div>
+<div class="section-title">🌐 PERCEPÇÃO DE MERCADO E CONSENSO</div>
+<div class="text-box">{ia_data.get('visao_mercado', '')}</div>
+<div class="section-title">🧠 DIAGNÓSTICO SÊNIOR INDEPENDENTE (FUNDAMENTOS E SETOR)</div>
+<div class="text-box" style="border-left: 3px solid #3498db; padding-left: 12px; margin-bottom: 20px;">{ia_data.get('analise_independente_ia', '')}</div>
 <div class="section-title">🔍 RAIO-X DO BALANÇO (PONTOS-CHAVE REFERÊNCIA: {data_balanco_str})</div>
 <div class="balanco-grid">
 <div class="balanco-box" style="border-top: 3px solid #27ae60;">
