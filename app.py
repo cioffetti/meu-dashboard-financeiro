@@ -265,7 +265,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                 except: pass
                     
             if not texto_noticias.strip(): 
-                texto_noticias = "Nenhuma notícia recente encontrada."
+                texto_noticias = "Nenhuma notícia foi encontrada nas últimas 2 semanas nas fontes padrão."
             
             # 3. PREPARAÇÃO DOS DADOS DO DASHBOARD E INJEÇÃO NA IA
             v_pessimista = dados_fundos.get('Val_Pessimista', 0) if dados_fundos else 0
@@ -525,7 +525,11 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             st.markdown(dashboard_html, unsafe_allow_html=True)
             
         except Exception as e:
-            st.error(f"Erro ao processar dashboard: {e}")
+            error_msg = str(e)
+            if "429" in error_msg or "Quota" in error_msg:
+                st.warning("⏳ O radar da Inteligência Artificial está resfriando. O limite de requisições gratuitas por minuto foi atingido. Por favor, aguarde cerca de 1 minuto e tente novamente.")
+            else:
+                st.error(f"Erro ao processar dashboard: {error_msg}")
 
 # --- LISTAS DE ATIVOS ---
 macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F", 2), "Petróleo (Brent)": ("BZ=F", 2), "Bitcoin": ("BTC-USD", 2), "Ethereum": ("ETH-USD", 2), "Solana": ("SOL-USD", 2), "Ibovespa": ("^BVSP", 2), "S&P 500": ("^GSPC", 2), "Dow Jones": ("^DJI", 2), "Nasdaq": ("^IXIC", 2), "DAX (Alem)": ("^GDAXI", 2), "Nikkei (Jap)": ("^N225", 2), "Shanghai (Chi)": ("000001.SS", 2), "Shenzhen (Chi)": ("399001.SZ", 2), "Merval (Arg)": ("^MERV", 2)}
