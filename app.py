@@ -267,7 +267,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             Alvo Otimista: {moeda_ia} {v_otimista:.2f}
             """
 
-            # 3. PROMPT JSON PARA A IA (ESTRUTURA RÍGIDA)
+            # 3. PROMPT JSON PARA A IA
             prompt = f"""
             Atue como Analista Chefe. Analise {ticker} com base nestes dados:
             {contexto_dados}
@@ -325,7 +325,6 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             star_divida = render_estrelas(dados_fundos.get('Liquidez_Corrente', 0) > 1.2) if dados_fundos else "---"
             star_cresc = render_estrelas(dados_fundos.get('Crescimento_5a_%', 0) > 5) if dados_fundos else "---"
 
-            # Processamento seguro das listas HTML de notícias
             html_noticias_positivas = ""
             for n in ia_data.get('noticias_positivas', []):
                 html_noticias_positivas += f"<li class='news-item' style='border-left-color:#27ae60;'><span class='news-meta'>{n.get('fonte', '')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
@@ -334,139 +333,138 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             for n in ia_data.get('noticias_negativas', []):
                 html_noticias_negativas += f"<li class='news-item' style='border-left-color:#c0392b;'><span class='news-meta'>{n.get('fonte', '')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
 
-            # Formatação limpa das listas SWOT
             swot_s = '<br>• '.join([''] + ia_data.get('swot', {}).get('S', []))
             swot_w = '<br>• '.join([''] + ia_data.get('swot', {}).get('W', []))
             swot_o = '<br>• '.join([''] + ia_data.get('swot', {}).get('O', []))
             swot_t = '<br>• '.join([''] + ia_data.get('swot', {}).get('T', []))
 
-            # 5. MONTAGEM DO HTML DO DASHBOARD
+            # IMPORTANTE: REMOVIDA A INDENTAÇÃO PARA O STREAMLIT NÃO LER COMO MARKDOWN CODE BLOCK
             dashboard_html = f"""
-            <style>
-            .dash-bg {{ background-color: #121212; color: #ecf0f1; font-family: 'Segoe UI', Arial, sans-serif; padding: 15px; border-radius: 8px; font-size: 13px; }}
-            .aviso-badge {{ background-color: #1a252f; border: 1px solid #3498db; color: #3498db; text-align: center; padding: 8px; border-radius: 4px; font-weight: bold; margin-bottom: 15px; }}
-            .section-title {{ color: #d35400; font-size: 11px; font-weight: bold; border-bottom: 1px dashed #333; margin-top: 20px; padding-bottom: 5px; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 5px; }}
-            
-            .metric-grid-3 {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }}
-            .metric-box-dark {{ border: 1px solid #333; padding: 10px; text-align: center; border-radius: 4px; background: #1a1a1a; }}
-            .metric-title {{ color: #7f8c8d; font-size: 10px; text-transform: uppercase; display: block; margin-bottom: 5px; }}
-            .metric-val-green {{ color: #27ae60; font-weight: bold; font-size: 16px; }}
-            .metric-val-red {{ color: #c0392b; font-weight: bold; font-size: 16px; }}
-            
-            .kpi-grid-6 {{ display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 5px; }}
-            .kpi-grid-4 {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 5px; }}
-            .kpi-item .label {{ color: #7f8c8d; font-size: 9px; text-transform: uppercase; }}
-            .kpi-item .val {{ color: #ecf0f1; font-weight: bold; font-size: 14px; display: block; margin-top: 2px; }}
-            
-            .text-box {{ color: #bdc3c7; font-size: 12px; line-height: 1.5; text-align: justify; }}
-            
-            .swot-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }}
-            .swot-card {{ padding: 12px; border-radius: 4px; background: #1a1a1a; font-size: 11px; color: #bdc3c7; }}
-            .swot-s {{ border: 1px solid #27ae60; }} .swot-w {{ border: 1px solid #c0392b; }}
-            .swot-o {{ border: 1px solid #2980b9; }} .swot-t {{ border: 1px solid #f39c12; }}
-            .swot-title {{ font-weight: bold; margin-bottom: 5px; display: block; }}
-            
-            .placar-row {{ display: flex; justify-content: space-between; border-bottom: 1px solid #222; padding: 6px 0; font-size: 12px; color: #bdc3c7; }}
-            .stars {{ color: #f1c40f; letter-spacing: 2px; }}
-            
-            .val-bar-container {{ display: flex; height: 6px; width: 100%; border-radius: 3px; overflow: hidden; margin: 15px 0; }}
-            .val-bar-red {{ background-color: #c0392b; flex: 1; }}
-            .val-bar-yellow {{ background-color: #f39c12; flex: 1; }}
-            .val-bar-green {{ background-color: #27ae60; flex: 1; }}
-            
-            .val-labels {{ display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; margin-bottom: 15px; }}
-            .val-pess {{ color: #c0392b; }} .val-base {{ color: #f39c12; text-align: center; }} .val-otim {{ color: #27ae60; text-align: right; }}
-            
-            .tese-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }}
-            .tese-card {{ border: 1px solid #333; padding: 10px; border-radius: 4px; font-size: 11px; color: #bdc3c7; line-height: 1.4; text-align: justify; }}
-            
-            .news-list {{ list-style-type: none; padding: 0; margin: 0; }}
-            .news-item {{ margin-bottom: 10px; font-size: 12px; border-left: 2px solid #555; padding-left: 10px; }}
-            .news-title {{ font-weight: bold; color: #ecf0f1; display: block; }}
-            .news-meta {{ color: #7f8c8d; font-size: 10px; margin-bottom: 2px; display: block; }}
-            </style>
-            
-            <div class="dash-bg">
-                <div class="aviso-badge">🛡️ Análise Assistida por IA — Baseada em Consenso e Indicadores Técnicos</div>
-                
-                <div class="section-title">🔒 DIAGNÓSTICO GRÁFICO (IA)</div>
-                <div class="metric-grid-3">
-                    <div class="metric-box-dark"><span class="metric-title">Tendência Curto Prazo</span><span class="{'metric-val-green' if tendencia_cp == 'Alta' else 'metric-val-red'}">{tendencia_cp}</span></div>
-                    <div class="metric-box-dark"><span class="metric-title">Zona de Suporte</span><span class="metric-val-green">{suporte_ia}</span></div>
-                    <div class="metric-box-dark"><span class="metric-title">Zona de Resistência</span><span class="metric-val-red">{resistencia_ia}</span></div>
-                </div>
-                <div class="text-box" style="text-align: center; font-style: italic;">"{ia_data.get('diagnostico_grafico_texto', '')}"</div>
-                
-                <div class="section-title">📊 INDICADORES DE VALUATION</div>
-                <div class="kpi-grid-6">
-                    <div class="kpi-item"><span class="label">D.Y</span><span class="val">{dy}</span></div>
-                    <div class="kpi-item"><span class="label">P/L</span><span class="val">{pl}</span></div>
-                    <div class="kpi-item"><span class="label">PEG RATIO</span><span class="val">{peg}</span></div>
-                    <div class="kpi-item"><span class="label">P/VP</span><span class="val">{pvp}</span></div>
-                    <div class="kpi-item"><span class="label">EV/EBITDA</span><span class="val">{evebit}</span></div>
-                    <div class="kpi-item"><span class="label">VPA</span><span class="val">{vpa}</span></div>
-                </div>
-                
-                <div class="section-title">⚖️ INDICADORES DE ENDIVIDAMENTO & RENTABILIDADE</div>
-                <div class="kpi-grid-4">
-                    <div class="kpi-item"><span class="label">Dív. Líquida / PL</span><span class="val">{div_liq_pl}</span></div>
-                    <div class="kpi-item"><span class="label">Liq. Corrente</span><span class="val">{liq_corr}</span></div>
-                    <div class="kpi-item"><span class="label">Margem Líquida</span><span class="val">{margem_liq}</span></div>
-                    <div class="kpi-item"><span class="label">ROE</span><span class="val">{roe}</span></div>
-                </div>
-                
-                <div class="section-title">🧠 DIAGNÓSTICO SÊNIOR & INTELIGÊNCIA SETORIAL</div>
-                <div class="text-box">{ia_data.get('analise_tendencia_fundamental', '')}</div>
-                
-                <div class="section-title">🎯 MATRIZ SWOT SETORIAL</div>
-                <div class="swot-grid">
-                    <div class="swot-card swot-s"><span class="swot-title" style="color:#27ae60;">S - Forças</span>{swot_s}</div>
-                    <div class="swot-card swot-w"><span class="swot-title" style="color:#c0392b;">W - Fraquezas</span>{swot_w}</div>
-                    <div class="swot-card swot-o"><span class="swot-title" style="color:#2980b9;">O - Oportunidades</span>{swot_o}</div>
-                    <div class="swot-card swot-t"><span class="swot-title" style="color:#f39c12;">T - Ameaças</span>{swot_t}</div>
-                </div>
-                
-                <div class="section-title">🏆 PLACAR FUNDAMENTALISTA VS SETOR</div>
-                <div class="placar-row"><span>ROE (Retorno do Acionista)</span><span class="stars">{star_roe}</span></div>
-                <div class="placar-row"><span>ROIC (Retorno s/ Capital)</span><span class="stars">{star_roic}</span></div>
-                <div class="placar-row"><span>Margem Líquida</span><span class="stars">{star_margem}</span></div>
-                <div class="placar-row"><span>Saúde da Dívida</span><span class="stars">{star_divida}</span></div>
-                <div class="placar-row" style="border:none;"><span>Cresc. Receita Líquida</span><span class="stars">{star_cresc}</span></div>
-                
-                <div class="section-title">📰 TERMÔMETRO DE NOTÍCIAS (TOP 10)</div>
-                <div class="swot-grid" style="align-items: start;">
-                    <div>
-                        <span style="color:#27ae60; font-weight:bold; font-size:12px; margin-bottom:10px; display:block;">🟢 Otimismo do Mercado</span>
-                        <ul class="news-list">
-                            {html_noticias_positivas}
-                        </ul>
-                    </div>
-                    <div>
-                        <span style="color:#c0392b; font-weight:bold; font-size:12px; margin-bottom:10px; display:block;">🔴 Alertas e Riscos</span>
-                        <ul class="news-list">
-                            {html_noticias_negativas}
-                        </ul>
-                    </div>
-                </div>
+<style>
+.dash-bg {{ background-color: #121212; color: #ecf0f1; font-family: 'Segoe UI', Arial, sans-serif; padding: 15px; border-radius: 8px; font-size: 13px; }}
+.aviso-badge {{ background-color: #1a252f; border: 1px solid #3498db; color: #3498db; text-align: center; padding: 8px; border-radius: 4px; font-weight: bold; margin-bottom: 15px; }}
+.section-title {{ color: #d35400; font-size: 11px; font-weight: bold; border-bottom: 1px dashed #333; margin-top: 20px; padding-bottom: 5px; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 5px; }}
 
-                <div class="section-title">🔮 VALUATION CONSENSO & PROJEÇÕES</div>
-                <div class="val-bar-container">
-                    <div class="val-bar-red"></div><div class="val-bar-yellow"></div><div class="val-bar-green"></div>
-                </div>
-                <div class="val-labels">
-                    <div class="val-pess">{moeda_ia} {v_pessimista:.2f}<br><span style="font-size:9px; color:#7f8c8d;">PESSIMISTA</span></div>
-                    <div class="val-base">{moeda_ia} {v_base:.2f}<br><span style="font-size:9px; color:#7f8c8d;">ALVO BASE</span></div>
-                    <div class="val-otim">{moeda_ia} {v_otimista:.2f}<br><span style="font-size:9px; color:#7f8c8d;">OTIMISTA</span></div>
-                </div>
-                
-                <div class="tese-grid">
-                    <div class="tese-card" style="border-color: #c0392b;"><span style="color:#c0392b; font-weight:bold; display:block; margin-bottom:5px;">Tese Pessimista</span>{ia_data.get('tese_pessimista', '')}</div>
-                    <div class="tese-card" style="border-color: #f39c12;"><span style="color:#f39c12; font-weight:bold; display:block; margin-bottom:5px;">Tese Base</span>{ia_data.get('tese_base', '')}</div>
-                    <div class="tese-card" style="border-color: #27ae60;"><span style="color:#27ae60; font-weight:bold; display:block; margin-bottom:5px;">Tese Otimista</span>{ia_data.get('tese_otimista', '')}</div>
-                </div>
-                
-            </div>
-            """
+.metric-grid-3 {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }}
+.metric-box-dark {{ border: 1px solid #333; padding: 10px; text-align: center; border-radius: 4px; background: #1a1a1a; }}
+.metric-title {{ color: #7f8c8d; font-size: 10px; text-transform: uppercase; display: block; margin-bottom: 5px; }}
+.metric-val-green {{ color: #27ae60; font-weight: bold; font-size: 16px; }}
+.metric-val-red {{ color: #c0392b; font-weight: bold; font-size: 16px; }}
+
+.kpi-grid-6 {{ display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 5px; }}
+.kpi-grid-4 {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 5px; }}
+.kpi-item .label {{ color: #7f8c8d; font-size: 9px; text-transform: uppercase; }}
+.kpi-item .val {{ color: #ecf0f1; font-weight: bold; font-size: 14px; display: block; margin-top: 2px; }}
+
+.text-box {{ color: #bdc3c7; font-size: 12px; line-height: 1.5; text-align: justify; }}
+
+.swot-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }}
+.swot-card {{ padding: 12px; border-radius: 4px; background: #1a1a1a; font-size: 11px; color: #bdc3c7; }}
+.swot-s {{ border: 1px solid #27ae60; }} .swot-w {{ border: 1px solid #c0392b; }}
+.swot-o {{ border: 1px solid #2980b9; }} .swot-t {{ border: 1px solid #f39c12; }}
+.swot-title {{ font-weight: bold; margin-bottom: 5px; display: block; }}
+
+.placar-row {{ display: flex; justify-content: space-between; border-bottom: 1px solid #222; padding: 6px 0; font-size: 12px; color: #bdc3c7; }}
+.stars {{ color: #f1c40f; letter-spacing: 2px; }}
+
+.val-bar-container {{ display: flex; height: 6px; width: 100%; border-radius: 3px; overflow: hidden; margin: 15px 0; }}
+.val-bar-red {{ background-color: #c0392b; flex: 1; }}
+.val-bar-yellow {{ background-color: #f39c12; flex: 1; }}
+.val-bar-green {{ background-color: #27ae60; flex: 1; }}
+
+.val-labels {{ display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; margin-bottom: 15px; }}
+.val-pess {{ color: #c0392b; }} .val-base {{ color: #f39c12; text-align: center; }} .val-otim {{ color: #27ae60; text-align: right; }}
+
+.tese-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }}
+.tese-card {{ border: 1px solid #333; padding: 10px; border-radius: 4px; font-size: 11px; color: #bdc3c7; line-height: 1.4; text-align: justify; }}
+
+.news-list {{ list-style-type: none; padding: 0; margin: 0; }}
+.news-item {{ margin-bottom: 10px; font-size: 12px; border-left: 2px solid #555; padding-left: 10px; }}
+.news-title {{ font-weight: bold; color: #ecf0f1; display: block; }}
+.news-meta {{ color: #7f8c8d; font-size: 10px; margin-bottom: 2px; display: block; }}
+</style>
+
+<div class="dash-bg">
+    <div class="aviso-badge">🛡️ Análise Assistida por IA — Baseada em Consenso e Indicadores Técnicos</div>
+    
+    <div class="section-title">🔒 DIAGNÓSTICO GRÁFICO (IA)</div>
+    <div class="metric-grid-3">
+        <div class="metric-box-dark"><span class="metric-title">Tendência Curto Prazo</span><span class="{'metric-val-green' if tendencia_cp == 'Alta' else 'metric-val-red'}">{tendencia_cp}</span></div>
+        <div class="metric-box-dark"><span class="metric-title">Zona de Suporte</span><span class="metric-val-green">{suporte_ia}</span></div>
+        <div class="metric-box-dark"><span class="metric-title">Zona de Resistência</span><span class="metric-val-red">{resistencia_ia}</span></div>
+    </div>
+    <div class="text-box" style="text-align: center; font-style: italic;">"{ia_data.get('diagnostico_grafico_texto', '')}"</div>
+    
+    <div class="section-title">📊 INDICADORES DE VALUATION</div>
+    <div class="kpi-grid-6">
+        <div class="kpi-item"><span class="label">D.Y</span><span class="val">{dy}</span></div>
+        <div class="kpi-item"><span class="label">P/L</span><span class="val">{pl}</span></div>
+        <div class="kpi-item"><span class="label">PEG RATIO</span><span class="val">{peg}</span></div>
+        <div class="kpi-item"><span class="label">P/VP</span><span class="val">{pvp}</span></div>
+        <div class="kpi-item"><span class="label">EV/EBITDA</span><span class="val">{evebit}</span></div>
+        <div class="kpi-item"><span class="label">VPA</span><span class="val">{vpa}</span></div>
+    </div>
+    
+    <div class="section-title">⚖️ INDICADORES DE ENDIVIDAMENTO & RENTABILIDADE</div>
+    <div class="kpi-grid-4">
+        <div class="kpi-item"><span class="label">Dív. Líquida / PL</span><span class="val">{div_liq_pl}</span></div>
+        <div class="kpi-item"><span class="label">Liq. Corrente</span><span class="val">{liq_corr}</span></div>
+        <div class="kpi-item"><span class="label">Margem Líquida</span><span class="val">{margem_liq}</span></div>
+        <div class="kpi-item"><span class="label">ROE</span><span class="val">{roe}</span></div>
+    </div>
+    
+    <div class="section-title">🧠 DIAGNÓSTICO SÊNIOR & INTELIGÊNCIA SETORIAL</div>
+    <div class="text-box">{ia_data.get('analise_tendencia_fundamental', '')}</div>
+    
+    <div class="section-title">🎯 MATRIZ SWOT SETORIAL</div>
+    <div class="swot-grid">
+        <div class="swot-card swot-s"><span class="swot-title" style="color:#27ae60;">S - Forças</span>{swot_s}</div>
+        <div class="swot-card swot-w"><span class="swot-title" style="color:#c0392b;">W - Fraquezas</span>{swot_w}</div>
+        <div class="swot-card swot-o"><span class="swot-title" style="color:#2980b9;">O - Oportunidades</span>{swot_o}</div>
+        <div class="swot-card swot-t"><span class="swot-title" style="color:#f39c12;">T - Ameaças</span>{swot_t}</div>
+    </div>
+    
+    <div class="section-title">🏆 PLACAR FUNDAMENTALISTA VS SETOR</div>
+    <div class="placar-row"><span>ROE (Retorno do Acionista)</span><span class="stars">{star_roe}</span></div>
+    <div class="placar-row"><span>ROIC (Retorno s/ Capital)</span><span class="stars">{star_roic}</span></div>
+    <div class="placar-row"><span>Margem Líquida</span><span class="stars">{star_margem}</span></div>
+    <div class="placar-row"><span>Saúde da Dívida</span><span class="stars">{star_divida}</span></div>
+    <div class="placar-row" style="border:none;"><span>Cresc. Receita Líquida</span><span class="stars">{star_cresc}</span></div>
+    
+    <div class="section-title">📰 TERMÔMETRO DE NOTÍCIAS (TOP 10)</div>
+    <div class="swot-grid" style="align-items: start;">
+        <div>
+            <span style="color:#27ae60; font-weight:bold; font-size:12px; margin-bottom:10px; display:block;">🟢 Otimismo do Mercado</span>
+            <ul class="news-list">
+                {html_noticias_positivas}
+            </ul>
+        </div>
+        <div>
+            <span style="color:#c0392b; font-weight:bold; font-size:12px; margin-bottom:10px; display:block;">🔴 Alertas e Riscos</span>
+            <ul class="news-list">
+                {html_noticias_negativas}
+            </ul>
+        </div>
+    </div>
+
+    <div class="section-title">🔮 VALUATION CONSENSO & PROJEÇÕES</div>
+    <div class="val-bar-container">
+        <div class="val-bar-red"></div><div class="val-bar-yellow"></div><div class="val-bar-green"></div>
+    </div>
+    <div class="val-labels">
+        <div class="val-pess">{moeda_ia} {v_pessimista:.2f}<br><span style="font-size:9px; color:#7f8c8d;">PESSIMISTA</span></div>
+        <div class="val-base">{moeda_ia} {v_base:.2f}<br><span style="font-size:9px; color:#7f8c8d;">ALVO BASE</span></div>
+        <div class="val-otim">{moeda_ia} {v_otimista:.2f}<br><span style="font-size:9px; color:#7f8c8d;">OTIMISTA</span></div>
+    </div>
+    
+    <div class="tese-grid">
+        <div class="tese-card" style="border-color: #c0392b;"><span style="color:#c0392b; font-weight:bold; display:block; margin-bottom:5px;">Tese Pessimista</span>{ia_data.get('tese_pessimista', '')}</div>
+        <div class="tese-card" style="border-color: #f39c12;"><span style="color:#f39c12; font-weight:bold; display:block; margin-bottom:5px;">Tese Base</span>{ia_data.get('tese_base', '')}</div>
+        <div class="tese-card" style="border-color: #27ae60;"><span style="color:#27ae60; font-weight:bold; display:block; margin-bottom:5px;">Tese Otimista</span>{ia_data.get('tese_otimista', '')}</div>
+    </div>
+    
+</div>
+"""
             st.markdown(dashboard_html, unsafe_allow_html=True)
             
         except Exception as e:
@@ -488,23 +486,17 @@ def gerar_badge_recomendacao(rec):
         return "<span style='color: #7f8c8d; font-weight: bold;'>---</span>"
     
     if "strong buy" in rec_str:
-        cor, bg = "#00b894", "rgba(0, 184, 148, 0.1)"
-        texto = "Strong Buy"
+        cor, bg, texto = "#00b894", "rgba(0, 184, 148, 0.1)", "Strong Buy"
     elif "buy" in rec_str:
-        cor, bg = "#00cc66", "rgba(0, 204, 102, 0.1)"
-        texto = "Buy"
+        cor, bg, texto = "#00cc66", "rgba(0, 204, 102, 0.1)", "Buy"
     elif "hold" in rec_str:
-        cor, bg = "#f1c40f", "rgba(241, 196, 15, 0.1)"
-        texto = "Hold"
+        cor, bg, texto = "#f1c40f", "rgba(241, 196, 15, 0.1)", "Hold"
     elif "strong sell" in rec_str:
-        cor, bg = "#c0392b", "rgba(192, 57, 43, 0.1)"
-        texto = "Strong Sell"
+        cor, bg, texto = "#c0392b", "rgba(192, 57, 43, 0.1)", "Strong Sell"
     elif "sell" in rec_str:
-        cor, bg = "#ff4b4b", "rgba(255, 75, 75, 0.1)"
-        texto = "Sell"
+        cor, bg, texto = "#ff4b4b", "rgba(255, 75, 75, 0.1)", "Sell"
     else:
-        cor, bg = "#bdc3c7", "rgba(189, 195, 199, 0.1)"
-        texto = str(rec).title()
+        cor, bg, texto = "#bdc3c7", "rgba(189, 195, 199, 0.1)", str(rec).title()
         
     estilo = f"border: 1px solid {cor}; color: {cor}; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; background-color: {bg}; text-transform: uppercase;"
     return f"<span style='{estilo}'>{texto}</span>"
@@ -531,7 +523,7 @@ aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_rankings, aba_si
     "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🏆 Rankings", "🎛️ Simulador", "🎯 Raio-X & IA"
 ])
 
-# --- RENDERIZAÇÃO DOS CARDS (ESTÉTICA BLOOMBERG / WALL STREET C/ TRATAMENTO DE ERRO) ---
+# --- RENDERIZAÇÃO DOS CARDS ---
 def renderizar_grid_cards(dicionario_ativos, mercado):
     lista_tickers = [info[0] for info in dicionario_ativos.values()]
     dados_lote, fonte = buscar_dados_em_lote(lista_tickers, mercado)
@@ -544,7 +536,6 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
             for j, (nome_exibicao, (ticker, casas)) in enumerate(lista_items[i:i+4]):
                 with cols[j]:
                     with st.container(border=True):
-                        # Verifica se o ticker existe na resposta E se tem dados suficientes (Evita o "buraco" na Solana)
                         if ticker in dados_lote.columns and len(dados_lote[ticker].dropna()) >= 2:
                             precos = dados_lote[ticker].dropna()
                             atual = float(precos.iloc[-1])
@@ -575,20 +566,20 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                             if margem_y == 0: margem_y = max_y * 0.01
 
                             html_card = f"""
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start; font-family: 'Segoe UI', Arial, sans-serif;">
-                                <div style="display: flex; flex-direction: column; width: 50%;">
-                                    <span style="color: #ffffff; font-weight: 800; font-size: 15px; line-height: 1.2;">{nome_exibicao}</span>
-                                    <span style="color: #7f8c8d; font-size: 11px; margin-top: 2px;">{ticker}</span>
-                                </div>
-                                <div style="display: flex; flex-direction: column; align-items: flex-end; width: 50%;">
-                                    <span style="color: #ffffff; font-weight: bold; font-size: 14px;">{unidade}</span>
-                                    <span style="color: #ffffff; font-weight: 900; font-size: 20px; line-height: 1.1; margin-top: 2px;">{formatar_br(atual, casas)}</span>
-                                    <span style="color: {cor_linha}; font-size: 12px; font-weight: bold; margin-top: 4px;">
-                                        {icone_var} {sinal_var}{var:.2f}%
-                                    </span>
-                                </div>
-                            </div>
-                            """
+<div style="display: flex; justify-content: space-between; align-items: flex-start; font-family: 'Segoe UI', Arial, sans-serif;">
+    <div style="display: flex; flex-direction: column; width: 50%;">
+        <span style="color: #ffffff; font-weight: 800; font-size: 15px; line-height: 1.2;">{nome_exibicao}</span>
+        <span style="color: #7f8c8d; font-size: 11px; margin-top: 2px;">{ticker}</span>
+    </div>
+    <div style="display: flex; flex-direction: column; align-items: flex-end; width: 50%;">
+        <span style="color: #ffffff; font-weight: bold; font-size: 14px;">{unidade}</span>
+        <span style="color: #ffffff; font-weight: 900; font-size: 20px; line-height: 1.1; margin-top: 2px;">{formatar_br(atual, casas)}</span>
+        <span style="color: {cor_linha}; font-size: 12px; font-weight: bold; margin-top: 4px;">
+            {icone_var} {sinal_var}{var:.2f}%
+        </span>
+    </div>
+</div>
+"""
                             st.markdown(html_card, unsafe_allow_html=True)
                             
                             fig = go.Figure(go.Scatter(
@@ -618,18 +609,17 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
                             st.caption(f"⚡ {hora_consulta} | {fonte}")
                         
                         else:
-                            # O CARTÃO DE ERRO (Trava para não furar o layout se a API falhar)
                             html_erro = f"""
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start; font-family: 'Segoe UI', Arial, sans-serif; opacity: 0.5;">
-                                <div style="display: flex; flex-direction: column; width: 100%;">
-                                    <span style="color: #ffffff; font-weight: 800; font-size: 15px; line-height: 1.2;">{nome_exibicao}</span>
-                                    <span style="color: #7f8c8d; font-size: 11px; margin-top: 2px;">{ticker}</span>
-                                    <div style="text-align: center; margin-top: 30px; margin-bottom: 30px;">
-                                        <span style="color: #ff4b4b; font-size: 14px; font-weight: bold;">⚠️ Sem Dados da API</span>
-                                    </div>
-                                </div>
-                            </div>
-                            """
+<div style="display: flex; justify-content: space-between; align-items: flex-start; font-family: 'Segoe UI', Arial, sans-serif; opacity: 0.5;">
+    <div style="display: flex; flex-direction: column; width: 100%;">
+        <span style="color: #ffffff; font-weight: 800; font-size: 15px; line-height: 1.2;">{nome_exibicao}</span>
+        <span style="color: #7f8c8d; font-size: 11px; margin-top: 2px;">{ticker}</span>
+        <div style="text-align: center; margin-top: 30px; margin-bottom: 30px;">
+            <span style="color: #ff4b4b; font-size: 14px; font-weight: bold;">⚠️ Sem Dados da API</span>
+        </div>
+    </div>
+</div>
+"""
                             st.markdown(html_erro, unsafe_allow_html=True)
                             st.caption(f"⚡ YF Timeout")
 
@@ -644,12 +634,9 @@ dados_base_carregados = False
 
 if os.path.exists(arquivo_csv):
     df = pd.read_csv(arquivo_csv, sep=";")
-    
-    # Injeta Preços Fresquinhos
     df = injetar_precos_ao_vivo(df)
     dados_base_carregados = True
     
-    # --- CÁLCULO DE TODOS OS ALVOS E MARGENS ---
     df['Dividendo_Pago'] = df['Preco'] * (df['Div_Yield_%'] / 100)
     df['Teto_Bazin'] = df['Dividendo_Pago'] / 0.06
     df['Margem_Bazin_%'] = np.where(df['Teto_Bazin'] > 0, ((df['Teto_Bazin'] - df['Preco']) / df['Preco']) * 100, 0)
@@ -657,7 +644,6 @@ if os.path.exists(arquivo_csv):
     df['Justo_Graham'] = np.where((df['LPA'] > 0) & (df['VPA'] > 0), np.sqrt(22.5 * df['LPA'] * df['VPA']), 0)
     df['Margem_Graham_%'] = np.where(df['Justo_Graham'] > 0, ((df['Justo_Graham'] - df['Preco']) / df['Preco']) * 100, 0)
 
-    # SOBERANIA DO COFRE DE CONSENSO
     if os.path.exists(arquivo_cofre):
         df_cofre = pd.read_csv(arquivo_cofre, sep=";")
         df_cofre = df_cofre.drop_duplicates(subset=['Ticker'], keep='last')
@@ -670,12 +656,10 @@ if os.path.exists(arquivo_csv):
     if 'Recomendacao' not in df.columns: df['Recomendacao'] = 'N/A'
     df['Metodo_Valuation'] = np.where(df['Val_Base'] > 0, "Consenso Analistas", "Sem Cobertura")
     
-    # MARGENS DE UPSIDE (CONSENSO)
     df['Margem_Pessimista_%'] = np.where(df['Val_Pessimista'] > 0, ((df['Val_Pessimista'] - df['Preco']) / df['Preco']) * 100, -999)
     df['Margem_Base_%'] = np.where(df['Val_Base'] > 0, ((df['Val_Base'] - df['Preco']) / df['Preco']) * 100, -999)
     df['Margem_Otimista_%'] = np.where(df['Val_Otimista'] > 0, ((df['Val_Otimista'] - df['Preco']) / df['Preco']) * 100, -999)
 
-    # SAÚDE E QUALIDADE
     df['F_Score'] = 0
     df.loc[df['ROE_%'] > 0, 'F_Score'] += 1
     df.loc[df['Margem_Liquida_%'] > 5, 'F_Score'] += 1
@@ -873,7 +857,8 @@ if os.path.exists(arquivo_csv):
         total_w = w_graham + w_bazin + w_magic + w_fscore + w_dcf
         if total_w > 0:
             df_sim['Nota_Final'] = ((df_sim['N_Graham']*w_graham) + (df_sim['N_Bazin']*w_bazin) + (df_sim['N_Magic'].fillna(0)*w_magic) + (df_sim['N_FScore']*w_fscore) + (df_sim['N_Mercado']*w_dcf)) / total_w
-        else: df_sim['Nota_Final'] = 0
+        else:
+            df_sim['Nota_Final'] = 0
 
         df_sim = df_sim.sort_values(by='Nota_Final', ascending=False).reset_index(drop=True)
         df_sim.index = df_sim.index + 1
