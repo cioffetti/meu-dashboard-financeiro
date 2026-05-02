@@ -189,7 +189,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
     if not GOOGLE_API_KEY: return st.error("⚠️ Configure sua GOOGLE_API_KEY para gerar a análise.")
     st.markdown(f"<h3 style='text-align: center; color: #ecf0f1; font-family: sans-serif;'>{ticker}</h3>", unsafe_allow_html=True)
     
-    with st.spinner("Processando gráfico, coletando notícias e acionando IA..."):
+    with st.spinner("Processando gráfico, coletando notícias e acionando IA Analista Sênior..."):
         try:
             # 1. GRÁFICO DE ÁREA DO TOPO
             moeda_ia = "R$" if ".SA" in ticker else "US$"
@@ -278,23 +278,31 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             Alvo Otimista: {moeda_ia} {v_otimista:.2f}
             """
 
-            # 3. PROMPT JSON PARA A IA
+            # 3. NOVO PROMPT AVANÇADO (ANALISTA SÊNIOR INDEPENDENTE)
             prompt = f"""
-            Atue como Analista Chefe. Analise {ticker} com base nestes dados:
+            Você é um analista de investimento sênior especializado em inteligência setorial, análise competitiva e efetuar valuation de ativos. 
+            Sua missão é realizar uma pesquisa profunda sobre o ativo {ticker} de forma INDEPENDENTE, focando na realidade da empresa e não em viés de terceiros/corretoras.
+            A pesquisa deve ser feita, sempre que possível, com base em fontes confiáveis e atualizadas (CVM, SEC, Morningstar, IBGE, etc.).
+
+            Abaixo estão os dados técnicos, de valuation e as notícias REAIS coletadas:
             {contexto_dados}
             MANCHETES: {texto_noticias}
-            
+
+            DIRETRIZES DA ANÁLISE:
+            Parte 1 – Resumir relatórios financeiros e analisar tendências: Resuma os principais destaques financeiros e áreas de preocupação. Analise tendências recorrentes em receitas, despesas e lucro líquido dos últimos anos.
+            Parte 2 – Análise de ativos: Realize uma análise profunda considerando indicadores técnicos fornecidos, correlação com índices e impactos macroeconômicos (comportamento em crises e crescimento). Avalie indicadores financeiros (ROE, ROIC, Margem EBITDA, Dívida/EBITDA, crescimento de receita) e efetue a Matriz SWOT.
+
             Você DEVE retornar APENAS um objeto JSON válido (sem marcações markdown como ```json), com a exata estrutura abaixo:
             {{
-              "diagnostico_grafico_texto": "1 frase resumindo a tendência de preço frente ao suporte e resistência.",
-              "analise_tendencia_fundamental": "1 parágrafo robusto avaliando a saúde operacional (lucro, dívida, macroeconomia) e justificando o momento da empresa.",
+              "diagnostico_grafico_texto": "1 frase resumindo a análise técnica, volatilidade e correlação do ativo.",
+              "analise_tendencia_fundamental": "1 parágrafo robusto com sua análise independente do momento da empresa, saúde operacional e macroeconomia.",
               "balanco_pontos_positivos": [
-                "Fato operacional real 1", 
-                "Fato operacional real 2", 
-                "Fato operacional real 3"
+                "Fato financeiro/operacional real 1 (focado na empresa, ex: aumento de receita, lucro)", 
+                "Fato financeiro/operacional real 2", 
+                "Fato financeiro/operacional real 3"
               ],
               "balanco_pontos_negativos": [
-                "Risco/fato negativo real 1", 
+                "Risco/fato negativo real 1 (focado na empresa, ex: queda de margem, alta dívida, macroeconomia)", 
                 "Risco/fato negativo real 2", 
                 "Risco/fato negativo real 3"
               ],
@@ -304,9 +312,9 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                 "O": ["Oportunidade 1", "Oportunidade 2", "Oportunidade 3"],
                 "T": ["Ameaça 1", "Ameaça 2", "Ameaça 3"]
               }},
-              "tese_pessimista": "1 parágrafo justificando por que a ação pode cair para o alvo pessimista.",
-              "tese_base": "1 parágrafo justificando o preço alvo base.",
-              "tese_otimista": "1 parágrafo justificando o potencial de alta para o alvo otimista.",
+              "tese_pessimista": "1 parágrafo com a tese de baixa baseada em fundamentos independentes e riscos.",
+              "tese_base": "1 parágrafo com a tese de preço justo baseada na saúde operacional real.",
+              "tese_otimista": "1 parágrafo com a tese de alta baseada em fundamentos e macroeconomia.",
               "noticias_positivas": [
                 {{"fonte": "Nome", "manchete": "Título", "resumo": "1 linha de explicação"}}
               ],
@@ -319,7 +327,8 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             model = genai.GenerativeModel('gemini-2.5-flash-lite')
             response = model.generate_content(prompt)
             
-            raw_json = response.text.replace("```json", "").replace("```", "").strip()
+            raw_json = response.text.replace("
+```json", "").replace("```", "").strip()
             ia_data = json.loads(raw_json)
 
             # 4. PREPARAÇÃO DOS DADOS DO DASHBOARD
@@ -360,7 +369,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             swot_o = '<br>• '.join([''] + ia_data.get('swot', {}).get('O', []))
             swot_t = '<br>• '.join([''] + ia_data.get('swot', {}).get('T', []))
 
-            # REMOVIDA QUALQUER IDENTAÇÃO NA STRING MULTI-LINHA PARA NÃO GERAR BLOCO DE CÓDIGO NO MARKDOWN
+            # HTML SEM IDENTAÇÃO COM RENDERIZAÇÃO BLINDADA
             dashboard_html = f"""<style>
 .dash-bg {{ background-color: #121212; color: #ecf0f1; font-family: 'Segoe UI', Arial, sans-serif; padding: 15px; border-radius: 8px; font-size: 14px; }}
 .aviso-badge {{ background-color: #1a252f; border: 1px solid #3498db; color: #3498db; text-align: center; padding: 8px; border-radius: 4px; font-weight: bold; margin-bottom: 15px; }}
