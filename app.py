@@ -191,35 +191,8 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
     
     with st.spinner("Processando gráfico, coletando notícias e acionando IA Analista Sênior..."):
         try:
-            # 1. PREPARAÇÃO DOS DADOS FUNDAMENTALISTAS
+            # 1. GRÁFICO DE ÁREA DO TOPO
             moeda_ia = "R$" if ".SA" in ticker else "US$"
-            
-            dy = f"{dados_fundos.get('Div_Yield_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Div_Yield_%')) else "-"
-            pl = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('LPA', 1):.2f}" if dados_fundos and dados_fundos.get('LPA', 0) > 0 else "-"
-            peg = "-"
-            pvp = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('VPA', 1):.2f}" if dados_fundos and dados_fundos.get('VPA', 0) > 0 else "-"
-            evebit = f"{dados_fundos.get('EV_EBIT', 0):.2f}" if dados_fundos and dados_fundos.get('EV_EBIT', 0) > 0 else "-"
-            vpa = f"{dados_fundos.get('VPA', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('VPA')) else "-"
-            
-            liq_corr = f"{dados_fundos.get('Liquidez_Corrente', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('Liquidez_Corrente')) else "-"
-            margem_liq = f"{dados_fundos.get('Margem_Liquida_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Margem_Liquida_%')) else "-"
-            roe = f"{dados_fundos.get('ROE_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('ROE_%')) else "-"
-            div_liq_pl = "-"
-            
-            v_pessimista = dados_fundos.get('Val_Pessimista', 0) if dados_fundos else 0
-            v_base = dados_fundos.get('Val_Base', 0) if dados_fundos else 0
-            v_otimista = dados_fundos.get('Val_Otimista', 0) if dados_fundos else 0
-
-            def render_estrelas(condicao):
-                return "★★★★★" if condicao else "★★☆☆☆"
-
-            star_roe = render_estrelas(dados_fundos.get('ROE_%', 0) > 10) if dados_fundos else "---"
-            star_roic = render_estrelas(dados_fundos.get('ROIC_%', 0) > 10) if dados_fundos else "---"
-            star_margem = render_estrelas(dados_fundos.get('Margem_Liquida_%', 0) > 5) if dados_fundos else "---"
-            star_divida = render_estrelas(dados_fundos.get('Liquidez_Corrente', 0) > 1.2) if dados_fundos else "---"
-            star_cresc = render_estrelas(dados_fundos.get('Crescimento_5a_%', 0) > 5) if dados_fundos else "---"
-
-            # 2. GRÁFICO DE ÁREA DO TOPO
             ativo_yf = yf.Ticker(ticker)
             dados_hist = ativo_yf.history(period="1y")
             
@@ -248,7 +221,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                 fig_top.update_layout(template="plotly_dark", height=200, margin=dict(l=0, r=0, t=0, b=0), xaxis_visible=False, yaxis_visible=True, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_top, use_container_width=True, config={'displayModeBar': False})
 
-            # 3. COLETA DE NOTÍCIAS E DATA DO BALANÇO
+            # 2. COLETA DE NOTÍCIAS E DADOS DA IA (COM FILTRO PARA NOTÍCIAS RECENTES - ÚLTIMOS 14 DIAS)
             data_balanco_str = "Recente"
             try:
                 info = ativo_yf.info
@@ -279,7 +252,8 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             else:
                 termo_busca = ticker.replace(".SA", "")
                 params = "hl=en-US&gl=US&ceid=US:en" if is_usa else "hl=pt-BR&gl=BR&ceid=BR:pt-419"
-                url_news = f"https://news.google.com/rss/search?q={termo_busca}+stock+market&{params}" if is_usa else f"https://news.google.com/rss/search?q={termo_busca}+ação+mercado&{params}"
+                # FILTRO APLICADO AQUI: when:14d força o Google a trazer apenas notícias recentes
+                url_news = f"https://news.google.com/rss/search?q={termo_busca}+stock+when:14d&{params}" if is_usa else f"https://news.google.com/rss/search?q={termo_busca}+ação+when:14d&{params}"
                 try:
                     resp = requests.get(url_news, timeout=10)
                     if resp.status_code == 200:
@@ -292,9 +266,25 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                 except: pass
                     
             if not texto_noticias.strip(): 
-                texto_noticias = "Nenhuma notícia foi encontrada nas últimas 24 horas nas fontes padrão."
+                texto_noticias = "Nenhuma notícia foi encontrada nas últimas 2 semanas nas fontes padrão."
             
-            # 4. A INJEÇÃO DE DADOS PARA A IA
+            v_pessimista = dados_fundos.get('Val_Pessimista', 0) if dados_fundos else 0
+            v_base = dados_fundos.get('Val_Base', 0) if dados_fundos else 0
+            v_otimista = dados_fundos.get('Val_Otimista', 0) if dados_fundos else 0
+
+            # 3. PREPARAÇÃO DOS DADOS DO DASHBOARD E INJEÇÃO NA IA
+            dy = f"{dados_fundos.get('Div_Yield_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Div_Yield_%')) else "-"
+            pl = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('LPA', 1):.2f}" if dados_fundos and dados_fundos.get('LPA', 0) > 0 else "-"
+            peg = "-"
+            pvp = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('VPA', 1):.2f}" if dados_fundos and dados_fundos.get('VPA', 0) > 0 else "-"
+            evebit = f"{dados_fundos.get('EV_EBIT', 0):.2f}" if dados_fundos and dados_fundos.get('EV_EBIT', 0) > 0 else "-"
+            vpa = f"{dados_fundos.get('VPA', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('VPA')) else "-"
+            
+            liq_corr = f"{dados_fundos.get('Liquidez_Corrente', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('Liquidez_Corrente')) else "-"
+            margem_liq = f"{dados_fundos.get('Margem_Liquida_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Margem_Liquida_%')) else "-"
+            roe = f"{dados_fundos.get('ROE_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('ROE_%')) else "-"
+            div_liq_pl = "-"
+            
             contexto_dados = f"""
             **DADOS DE MERCADO (TÉCNICOS E PREÇO):**
             Preço Atual: {preco_atual_ia}
@@ -313,12 +303,12 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             Liquidez Corrente: {liq_corr}
             """
 
-            # 5. PROMPT AVANÇADO (DUPLA ANÁLISE: MERCADO + INDEPENDENTE)
+            # 4. PROMPT AVANÇADO (AGORA COM CAMPO "DATA" NAS NOTÍCIAS)
             prompt = f"""
             Você é um analista de investimento sênior especializado em inteligência setorial, análise competitiva e efetuar valuation de ativos. 
             Sua missão é realizar uma pesquisa profunda sobre o ativo {ticker}.
 
-            Abaixo estão os dados técnicos, os INDICADORES FUNDAMENTALISTAS REAIS da empresa e as manchetes coletadas hoje:
+            Abaixo estão os dados técnicos, os INDICADORES FUNDAMENTALISTAS REAIS da empresa e as manchetes recentes coletadas hoje:
             {contexto_dados}
             MANCHETES COLETADAS HOJE: 
             {texto_noticias}
@@ -326,7 +316,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             DIRETRIZES:
             1. Percepção de Mercado: Resuma o sentimento geral do mercado baseado nas notícias e no consenso (alvos de preço).
             2. Análise Independente (A sua visão de Sênior): Ignore o ruído. Foque estritamente nos indicadores que lhe passei (ROE, Margens, P/L, Dívida). Analise a saúde intrínseca, comportamento em crises e vantagem competitiva.
-            3. Notícias: Classifique OBRIGATORIAMENTE as manchetes reais fornecidas acima em "positivas" e "negativas". Extraia o máximo possível (até 5 de cada). Nunca deixe os arrays de notícias vazios se houver texto no bloco MANCHETES.
+            3. Notícias: Classifique OBRIGATORIAMENTE as manchetes reais fornecidas acima em "positivas" e "negativas". Extraia a DATA, a fonte e o título real de cada uma. Se o bloco MANCHETES não estiver vazio, preencha os arrays.
 
             Você DEVE retornar APENAS um objeto JSON válido, sem NENHUMA formatação markdown como ```json, com a exata estrutura abaixo:
             {{
@@ -353,10 +343,10 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
               "tese_base": "1 parágrafo com a tese de preço justo.",
               "tese_otimista": "1 parágrafo com a tese de alta.",
               "noticias_positivas": [
-                {{"fonte": "Nome da Fonte", "manchete": "Título Real da Notícia", "resumo": "Explicação curta"}}
+                {{"data": "DD/MM/YYYY", "fonte": "Nome da Fonte", "manchete": "Título Real da Notícia", "resumo": "Explicação curta"}}
               ],
               "noticias_negativas": [
-                {{"fonte": "Nome da Fonte", "manchete": "Título Real da Notícia", "resumo": "Explicação curta"}}
+                {{"data": "DD/MM/YYYY", "fonte": "Nome da Fonte", "manchete": "Título Real da Notícia", "resumo": "Explicação curta"}}
               ]
             }}
             """
@@ -365,28 +355,39 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             response = model.generate_content(prompt)
             
             # Limpeza do JSON totalmente blindada
-            raw_json = response.text.strip()
-            if raw_json.startswith("```json"): raw_json = raw_json[7:]
-            if raw_json.startswith("```"): raw_json = raw_json[3:]
-            if raw_json.endswith("```"): raw_json = raw_json[:-3]
-            raw_json = raw_json.strip()
-            
+            crase = chr(96)
+            raw_json = response.text.replace(f"{crase}{crase}{crase}json", "").replace(f"{crase}{crase}{crase}", "").strip()
             ia_data = json.loads(raw_json)
 
-            # Processamento Seguro das Notícias
+            def render_estrelas(condicao):
+                return "★★★★★" if condicao else "★★☆☆☆"
+
+            star_roe = render_estrelas(dados_fundos.get('ROE_%', 0) > 10) if dados_fundos else "---"
+            star_roic = render_estrelas(dados_fundos.get('ROIC_%', 0) > 10) if dados_fundos else "---"
+            star_margem = render_estrelas(dados_fundos.get('Margem_Liquida_%', 0) > 5) if dados_fundos else "---"
+            star_divida = render_estrelas(dados_fundos.get('Liquidez_Corrente', 0) > 1.2) if dados_fundos else "---"
+            star_cresc = render_estrelas(dados_fundos.get('Crescimento_5a_%', 0) > 5) if dados_fundos else "---"
+
+            # Processamento Seguro das Notícias com Data e Fonte Integradas
             html_noticias_positivas = ""
             if ia_data.get('noticias_positivas') and len(ia_data.get('noticias_positivas')) > 0:
                 for n in ia_data.get('noticias_positivas'):
-                    html_noticias_positivas += f"<li class='news-item' style='border-left-color:#27ae60;'><span class='news-meta'>{n.get('fonte', 'Mercado')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
+                    data_str = n.get('data', '')
+                    fonte_str = n.get('fonte', 'Mercado')
+                    meta_text = f"{data_str} • {fonte_str}" if data_str else fonte_str
+                    html_noticias_positivas += f"<li class='news-item' style='border-left-color:#27ae60;'><span class='news-meta'>{meta_text}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
             else:
-                html_noticias_positivas = "<li class='news-item' style='border-left-color:#7f8c8d;'><span style='color:#bdc3c7;'>Nenhum gatilho de otimismo forte rastreado nas manchetes de hoje.</span></li>"
+                html_noticias_positivas = "<li class='news-item' style='border-left-color:#7f8c8d;'><span style='color:#bdc3c7;'>Nenhum gatilho de otimismo forte rastreado nas manchetes recentes.</span></li>"
 
             html_noticias_negativas = ""
             if ia_data.get('noticias_negativas') and len(ia_data.get('noticias_negativas')) > 0:
                 for n in ia_data.get('noticias_negativas'):
-                    html_noticias_negativas += f"<li class='news-item' style='border-left-color:#c0392b;'><span class='news-meta'>{n.get('fonte', 'Mercado')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
+                    data_str = n.get('data', '')
+                    fonte_str = n.get('fonte', 'Mercado')
+                    meta_text = f"{data_str} • {fonte_str}" if data_str else fonte_str
+                    html_noticias_negativas += f"<li class='news-item' style='border-left-color:#c0392b;'><span class='news-meta'>{meta_text}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
             else:
-                html_noticias_negativas = "<li class='news-item' style='border-left-color:#7f8c8d;'><span style='color:#bdc3c7;'>Nenhum alerta crítico de risco rastreado nas manchetes de hoje.</span></li>"
+                html_noticias_negativas = "<li class='news-item' style='border-left-color:#7f8c8d;'><span style='color:#bdc3c7;'>Nenhum alerta crítico de risco rastreado nas manchetes recentes.</span></li>"
 
             html_balanco_pos = "".join([f"<div class='balanco-item'><span>✅</span><span>{p}</span></div>" for p in ia_data.get('balanco_pontos_positivos', [])])
             html_balanco_neg = "".join([f"<div class='balanco-item'><span>⚠️</span><span>{p}</span></div>" for p in ia_data.get('balanco_pontos_negativos', [])])
@@ -396,7 +397,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             swot_o = '<br>• '.join([''] + ia_data.get('swot', {}).get('O', []))
             swot_t = '<br>• '.join([''] + ia_data.get('swot', {}).get('T', []))
 
-            # O HTML final (sem espaços em branco à esquerda)
+            # O HTML final blindado
             dashboard_html = f"""<style>
 .dash-bg {{ background-color: #121212; color: #ecf0f1; font-family: 'Segoe UI', Arial, sans-serif; padding: 15px; border-radius: 8px; font-size: 14px; }}
 .aviso-badge {{ background-color: #1a252f; border: 1px solid #3498db; color: #3498db; text-align: center; padding: 8px; border-radius: 4px; font-weight: bold; margin-bottom: 15px; }}
