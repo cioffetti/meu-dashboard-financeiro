@@ -54,7 +54,7 @@ def buscar_dados_em_lote(lista_tickers, mercado="Macro"):
         if mercado == "BR" and BRAPI_KEY:
             try:
                 tickers_limpos = [t.replace(".SA", "") for t in lista_tickers]
-                url = f"[https://brapi.dev/api/quote/](https://brapi.dev/api/quote/){','.join(tickers_limpos)}?token={BRAPI_KEY}"
+                url = f"https://brapi.dev/api/quote/{','.join(tickers_limpos)}?token={BRAPI_KEY}"
                 res = requests.get(url, timeout=5).json()
                 if 'results' in res:
                     for item in res['results']:
@@ -191,8 +191,35 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
     
     with st.spinner("Processando gráfico, coletando notícias e acionando IA Analista Sênior..."):
         try:
-            # 1. GRÁFICO DE ÁREA DO TOPO
+            # 1. PREPARAÇÃO DOS DADOS FUNDAMENTALISTAS
             moeda_ia = "R$" if ".SA" in ticker else "US$"
+            
+            dy = f"{dados_fundos.get('Div_Yield_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Div_Yield_%')) else "-"
+            pl = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('LPA', 1):.2f}" if dados_fundos and dados_fundos.get('LPA', 0) > 0 else "-"
+            peg = "-"
+            pvp = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('VPA', 1):.2f}" if dados_fundos and dados_fundos.get('VPA', 0) > 0 else "-"
+            evebit = f"{dados_fundos.get('EV_EBIT', 0):.2f}" if dados_fundos and dados_fundos.get('EV_EBIT', 0) > 0 else "-"
+            vpa = f"{dados_fundos.get('VPA', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('VPA')) else "-"
+            
+            liq_corr = f"{dados_fundos.get('Liquidez_Corrente', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('Liquidez_Corrente')) else "-"
+            margem_liq = f"{dados_fundos.get('Margem_Liquida_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Margem_Liquida_%')) else "-"
+            roe = f"{dados_fundos.get('ROE_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('ROE_%')) else "-"
+            div_liq_pl = "-"
+            
+            v_pessimista = dados_fundos.get('Val_Pessimista', 0) if dados_fundos else 0
+            v_base = dados_fundos.get('Val_Base', 0) if dados_fundos else 0
+            v_otimista = dados_fundos.get('Val_Otimista', 0) if dados_fundos else 0
+
+            def render_estrelas(condicao):
+                return "★★★★★" if condicao else "★★☆☆☆"
+
+            star_roe = render_estrelas(dados_fundos.get('ROE_%', 0) > 10) if dados_fundos else "---"
+            star_roic = render_estrelas(dados_fundos.get('ROIC_%', 0) > 10) if dados_fundos else "---"
+            star_margem = render_estrelas(dados_fundos.get('Margem_Liquida_%', 0) > 5) if dados_fundos else "---"
+            star_divida = render_estrelas(dados_fundos.get('Liquidez_Corrente', 0) > 1.2) if dados_fundos else "---"
+            star_cresc = render_estrelas(dados_fundos.get('Crescimento_5a_%', 0) > 5) if dados_fundos else "---"
+
+            # 2. GRÁFICO DE ÁREA DO TOPO
             ativo_yf = yf.Ticker(ticker)
             dados_hist = ativo_yf.history(period="1y")
             
@@ -221,7 +248,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                 fig_top.update_layout(template="plotly_dark", height=200, margin=dict(l=0, r=0, t=0, b=0), xaxis_visible=False, yaxis_visible=True, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_top, use_container_width=True, config={'displayModeBar': False})
 
-            # 2. COLETA DE NOTÍCIAS E DADOS DA IA
+            # 3. COLETA DE NOTÍCIAS E DATA DO BALANÇO
             data_balanco_str = "Recente"
             try:
                 info = ativo_yf.info
@@ -252,7 +279,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             else:
                 termo_busca = ticker.replace(".SA", "")
                 params = "hl=en-US&gl=US&ceid=US:en" if is_usa else "hl=pt-BR&gl=BR&ceid=BR:pt-419"
-                url_news = f"[https://news.google.com/rss/search?q=](https://news.google.com/rss/search?q=){termo_busca}+stock+market&{params}" if is_usa else f"[https://news.google.com/rss/search?q=](https://news.google.com/rss/search?q=){termo_busca}+ação+mercado&{params}"
+                url_news = f"https://news.google.com/rss/search?q={termo_busca}+stock+market&{params}" if is_usa else f"https://news.google.com/rss/search?q={termo_busca}+ação+mercado&{params}"
                 try:
                     resp = requests.get(url_news, timeout=10)
                     if resp.status_code == 200:
@@ -264,48 +291,57 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                             if t: texto_noticias += f"- Data: {d} | Fonte: {f} | Título: {t}\n"
                 except: pass
                     
-            if not texto_noticias.strip(): texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
-
-            v_pessimista = dados_fundos.get('Val_Pessimista', 0) if dados_fundos else 0
-            v_base = dados_fundos.get('Val_Base', 0) if dados_fundos else 0
-            v_otimista = dados_fundos.get('Val_Otimista', 0) if dados_fundos else 0
+            if not texto_noticias.strip(): 
+                texto_noticias = "Nenhuma notícia foi encontrada nas últimas 24 horas nas fontes padrão."
             
+            # 4. A INJEÇÃO DE DADOS PARA A IA
             contexto_dados = f"""
+            **DADOS DE MERCADO (TÉCNICOS E PREÇO):**
             Preço Atual: {preco_atual_ia}
             Suporte: {suporte_ia} | Resistência: {resistencia_ia}
-            Alvo Pessimista: {moeda_ia} {v_pessimista:.2f}
-            Alvo Base: {moeda_ia} {v_base:.2f}
-            Alvo Otimista: {moeda_ia} {v_otimista:.2f}
+            Alvo Pessimista (Mercado): {moeda_ia} {v_pessimista:.2f}
+            Alvo Base (Mercado): {moeda_ia} {v_base:.2f}
+            Alvo Otimista (Mercado): {moeda_ia} {v_otimista:.2f}
+            
+            **INDICADORES FUNDAMENTALISTAS REAIS DA EMPRESA:**
+            Dividend Yield: {dy}
+            P/L (Preço/Lucro): {pl}
+            P/VP (Preço/Valor Patrimonial): {pvp}
+            EV/EBITDA: {evebit}
+            Margem Líquida: {margem_liq}
+            ROE (Retorno sobre Patrimônio): {roe}
+            Liquidez Corrente: {liq_corr}
             """
 
-            # 3. NOVO PROMPT AVANÇADO (ANALISTA SÊNIOR INDEPENDENTE + VISÃO DE MERCADO)
+            # 5. PROMPT AVANÇADO (DUPLA ANÁLISE: MERCADO + INDEPENDENTE)
             prompt = f"""
             Você é um analista de investimento sênior especializado em inteligência setorial, análise competitiva e efetuar valuation de ativos. 
             Sua missão é realizar uma pesquisa profunda sobre o ativo {ticker}.
-            Importante: A pesquisa deve ser feita, sempre que possível, com base em fontes confiáveis e atualizadas (CVM, SEC, Morningstar, Wall St Journal, IBGE, Statista, etc).
 
-            Abaixo estão os dados técnicos, de valuation e as notícias REAIS coletadas:
+            Abaixo estão os dados técnicos, os INDICADORES FUNDAMENTALISTAS REAIS da empresa e as manchetes coletadas hoje:
             {contexto_dados}
-            MANCHETES: {texto_noticias}
+            MANCHETES COLETADAS HOJE: 
+            {texto_noticias}
 
-            DIRETRIZES DA ANÁLISE INDEPENDENTE:
-            Parte 1 – Resumir relatórios financeiros e analisar tendências: Resuma os principais destaques financeiros. Analise tendências recorrentes em receitas, despesas e lucro líquido dos últimos anos.
-            Parte 2 – Análise de ativos: Realize uma análise profunda considerando indicadores técnicos, correlação com índices e impactos macroeconômicos (comportamento em crises e crescimento). Avalie ROE, ROIC, Margem EBITDA, Dívida/EBITDA e crescimento de receita. Efetue a Matriz SWOT.
+            DIRETRIZES:
+            1. Percepção de Mercado: Resuma o sentimento geral do mercado baseado nas notícias e no consenso (alvos de preço).
+            2. Análise Independente (A sua visão de Sênior): Ignore o ruído. Foque estritamente nos indicadores que lhe passei (ROE, Margens, P/L, Dívida). Analise a saúde intrínseca, comportamento em crises e vantagem competitiva.
+            3. Notícias: Classifique OBRIGATORIAMENTE as manchetes reais fornecidas acima em "positivas" e "negativas". Extraia o máximo possível (até 5 de cada). Nunca deixe os arrays de notícias vazios se houver texto no bloco MANCHETES.
 
-            Você DEVE retornar APENAS um objeto JSON válido, sem NENHUMA marcação de markdown, com a exata estrutura abaixo:
+            Você DEVE retornar APENAS um objeto JSON válido, sem NENHUMA formatação markdown como ```json, com a exata estrutura abaixo:
             {{
-              "diagnostico_grafico_texto": "1 frase resumindo a análise técnica, volatilidade e correlação do ativo.",
-              "visao_mercado": "1 parágrafo resumindo a percepção atual do mercado, analistas de corretoras e o sentimento geral das notícias.",
-              "analise_independente_ia": "1 parágrafo robusto com sua análise INDEPENDENTE do momento da empresa, saúde operacional e macroeconomia (aplicando a Parte 1 e 2 das diretrizes).",
+              "diagnostico_grafico_texto": "1 frase resumindo a tendência técnica e suporte/resistência.",
+              "visao_mercado": "1 parágrafo com a percepção do mercado, consenso e sentimento geral.",
+              "analise_independente_ia": "1 parágrafo robusto com sua análise INDEPENDENTE focada em ROE, P/L, Margens e resiliência macroeconômica.",
               "balanco_pontos_positivos": [
-                "Fato financeiro/operacional real 1", 
-                "Fato financeiro/operacional real 2", 
-                "Fato financeiro/operacional real 3"
+                "Fato financeiro real 1", 
+                "Fato financeiro real 2", 
+                "Fato financeiro real 3"
               ],
               "balanco_pontos_negativos": [
-                "Risco/fato negativo real 1", 
-                "Risco/fato negativo real 2", 
-                "Risco/fato negativo real 3"
+                "Risco/alerta financeiro real 1", 
+                "Risco/alerta financeiro real 2", 
+                "Risco/alerta financeiro real 3"
               ],
               "swot": {{
                 "S": ["Força 1", "Força 2", "Força 3"],
@@ -313,14 +349,14 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                 "O": ["Oportunidade 1", "Oportunidade 2", "Oportunidade 3"],
                 "T": ["Ameaça 1", "Ameaça 2", "Ameaça 3"]
               }},
-              "tese_pessimista": "1 parágrafo justificando por que a ação pode cair para o alvo pessimista.",
-              "tese_base": "1 parágrafo justificando o preço alvo base.",
-              "tese_otimista": "1 parágrafo justificando o potencial de alta para o alvo otimista.",
+              "tese_pessimista": "1 parágrafo com a tese de baixa.",
+              "tese_base": "1 parágrafo com a tese de preço justo.",
+              "tese_otimista": "1 parágrafo com a tese de alta.",
               "noticias_positivas": [
-                {{"fonte": "Nome", "manchete": "Título", "resumo": "1 linha de explicação"}}
+                {{"fonte": "Nome da Fonte", "manchete": "Título Real da Notícia", "resumo": "Explicação curta"}}
               ],
               "noticias_negativas": [
-                {{"fonte": "Nome", "manchete": "Título", "resumo": "1 linha de explicação"}}
+                {{"fonte": "Nome da Fonte", "manchete": "Título Real da Notícia", "resumo": "Explicação curta"}}
               ]
             }}
             """
@@ -328,40 +364,29 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             model = genai.GenerativeModel('gemini-2.5-flash-lite')
             response = model.generate_content(prompt)
             
-            # Limpeza cirúrgica do JSON sem escrever backticks diretamente na string (imune ao bug de copy/paste do Markdown)
-            crase = chr(96)
-            raw_json = response.text.replace(f"{crase}{crase}{crase}json", "").replace(f"{crase}{crase}{crase}", "").strip()
+            # Limpeza do JSON totalmente blindada
+            raw_json = response.text.strip()
+            if raw_json.startswith("```json"): raw_json = raw_json[7:]
+            if raw_json.startswith("```"): raw_json = raw_json[3:]
+            if raw_json.endswith("```"): raw_json = raw_json[:-3]
+            raw_json = raw_json.strip()
+            
             ia_data = json.loads(raw_json)
 
-            # 4. PREPARAÇÃO DOS DADOS DO DASHBOARD
-            dy = f"{dados_fundos.get('Div_Yield_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Div_Yield_%')) else "-"
-            pl = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('LPA', 1):.2f}" if dados_fundos and dados_fundos.get('LPA', 0) > 0 else "-"
-            peg = "-"
-            pvp = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('VPA', 1):.2f}" if dados_fundos and dados_fundos.get('VPA', 0) > 0 else "-"
-            evebit = f"{dados_fundos.get('EV_EBIT', 0):.2f}" if dados_fundos and dados_fundos.get('EV_EBIT', 0) > 0 else "-"
-            vpa = f"{dados_fundos.get('VPA', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('VPA')) else "-"
-            
-            liq_corr = f"{dados_fundos.get('Liquidez_Corrente', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('Liquidez_Corrente')) else "-"
-            margem_liq = f"{dados_fundos.get('Margem_Liquida_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Margem_Liquida_%')) else "-"
-            roe = f"{dados_fundos.get('ROE_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('ROE_%')) else "-"
-            div_liq_pl = "-"
-
-            def render_estrelas(condicao):
-                return "★★★★★" if condicao else "★★☆☆☆"
-
-            star_roe = render_estrelas(dados_fundos.get('ROE_%', 0) > 10) if dados_fundos else "---"
-            star_roic = render_estrelas(dados_fundos.get('ROIC_%', 0) > 10) if dados_fundos else "---"
-            star_margem = render_estrelas(dados_fundos.get('Margem_Liquida_%', 0) > 5) if dados_fundos else "---"
-            star_divida = render_estrelas(dados_fundos.get('Liquidez_Corrente', 0) > 1.2) if dados_fundos else "---"
-            star_cresc = render_estrelas(dados_fundos.get('Crescimento_5a_%', 0) > 5) if dados_fundos else "---"
-
+            # Processamento Seguro das Notícias
             html_noticias_positivas = ""
-            for n in ia_data.get('noticias_positivas', []):
-                html_noticias_positivas += f"<li class='news-item' style='border-left-color:#27ae60;'><span class='news-meta'>{n.get('fonte', '')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
+            if ia_data.get('noticias_positivas') and len(ia_data.get('noticias_positivas')) > 0:
+                for n in ia_data.get('noticias_positivas'):
+                    html_noticias_positivas += f"<li class='news-item' style='border-left-color:#27ae60;'><span class='news-meta'>{n.get('fonte', 'Mercado')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
+            else:
+                html_noticias_positivas = "<li class='news-item' style='border-left-color:#7f8c8d;'><span style='color:#bdc3c7;'>Nenhum gatilho de otimismo forte rastreado nas manchetes de hoje.</span></li>"
 
             html_noticias_negativas = ""
-            for n in ia_data.get('noticias_negativas', []):
-                html_noticias_negativas += f"<li class='news-item' style='border-left-color:#c0392b;'><span class='news-meta'>{n.get('fonte', '')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
+            if ia_data.get('noticias_negativas') and len(ia_data.get('noticias_negativas')) > 0:
+                for n in ia_data.get('noticias_negativas'):
+                    html_noticias_negativas += f"<li class='news-item' style='border-left-color:#c0392b;'><span class='news-meta'>{n.get('fonte', 'Mercado')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
+            else:
+                html_noticias_negativas = "<li class='news-item' style='border-left-color:#7f8c8d;'><span style='color:#bdc3c7;'>Nenhum alerta crítico de risco rastreado nas manchetes de hoje.</span></li>"
 
             html_balanco_pos = "".join([f"<div class='balanco-item'><span>✅</span><span>{p}</span></div>" for p in ia_data.get('balanco_pontos_positivos', [])])
             html_balanco_neg = "".join([f"<div class='balanco-item'><span>⚠️</span><span>{p}</span></div>" for p in ia_data.get('balanco_pontos_negativos', [])])
@@ -371,7 +396,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             swot_o = '<br>• '.join([''] + ia_data.get('swot', {}).get('O', []))
             swot_t = '<br>• '.join([''] + ia_data.get('swot', {}).get('T', []))
 
-            # HTML SEM NENHUMA INDENTAÇÃO COM RENDERIZAÇÃO BLINDADA + AS DUAS SEÇÕES DE ANÁLISE
+            # O HTML final (sem espaços em branco à esquerda)
             dashboard_html = f"""<style>
 .dash-bg {{ background-color: #121212; color: #ecf0f1; font-family: 'Segoe UI', Arial, sans-serif; padding: 15px; border-radius: 8px; font-size: 14px; }}
 .aviso-badge {{ background-color: #1a252f; border: 1px solid #3498db; color: #3498db; text-align: center; padding: 8px; border-radius: 4px; font-weight: bold; margin-bottom: 15px; }}
