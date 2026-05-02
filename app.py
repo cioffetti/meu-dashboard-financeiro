@@ -354,7 +354,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             }}
             """
             
-            model = genai.GenerativeModel('gemini-2.5-flash-lite')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             response = model.generate_content(prompt)
             
             # Limpeza do JSON blindada
