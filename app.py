@@ -7,6 +7,7 @@ import numpy as np
 import requests
 from datetime import datetime
 import os
+import json
 from dotenv import load_dotenv
 import google.generativeai as genai
 import xml.etree.ElementTree as ET
@@ -182,190 +183,294 @@ def abrir_raio_x(ticker):
             st.success(f"🎯 **Preço Atrativo de Entrada:** {moeda} {suportes[0]:.2f}")
     except Exception as e: st.error(f"Erro: {e}")
 
-@st.dialog("🧠 Parecer do Analista IA (Qualitativo)", width="large")
-def gerar_relatorio_ia(ticker, dados_fundos=None):
-    if not GOOGLE_API_KEY: return st.error("⚠️ Configure sua GOOGLE_API_KEY.")
-    st.info(f"Coletando notícias reais e cruzando Pilares Institucionais para **{ticker}**...")
+# --- DIALOGO: DASHBOARD DE VEREDITO (ESTILO INSTITUCIONAL EM JSON) ---
+@st.dialog("🧠 Painel de Inteligência e Veredito IA", width="large")
+def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
+    if not GOOGLE_API_KEY: return st.error("⚠️ Configure sua GOOGLE_API_KEY para gerar a análise.")
+    st.markdown(f"<h3 style='text-align: center; color: #ecf0f1; font-family: sans-serif;'>{ticker}</h3>", unsafe_allow_html=True)
     
-    try:
-        data_balanco_str = "Recente"
+    with st.spinner("Processando gráfico, coletando notícias e acionando IA..."):
         try:
+            # 1. GRÁFICO DE ÁREA DO TOPO
+            moeda_ia = "R$" if ".SA" in ticker else "US$"
             ativo_yf = yf.Ticker(ticker)
-            info = ativo_yf.info
-            if 'mostRecentQuarter' in info and info['mostRecentQuarter'] is not None:
-                data_balanco_str = datetime.fromtimestamp(info['mostRecentQuarter']).strftime('%m/%Y')
-            else:
-                q_fin = ativo_yf.quarterly_financials
-                if not q_fin.empty:
-                    data_balanco_str = q_fin.columns[0].strftime('%m/%Y')
-        except Exception:
-            pass
-
-        preco_atual_ia, suporte_ia = "N/A", "N/A"
-        moeda_ia = "R$" if ".SA" in ticker else "US$"
-        try:
-            dados_hist = ativo_yf.history(period="2y")
+            dados_hist = ativo_yf.history(period="1y")
+            
+            preco_atual_ia, suporte_ia, resistencia_ia = "N/A", "N/A", "N/A"
+            tendencia_cp = "Neutra"
+            
             if not dados_hist.empty:
                 df_tec_ia = calcular_indicadores_tecnicos(dados_hist)
-                sup_ia, _ = encontrar_suportes_resistencias(df_tec_ia)
+                sup_ia, res_ia = encontrar_suportes_resistencias(df_tec_ia)
+                preco_atual_num = df_tec_ia['Close'].iloc[-1]
+                preco_atual_ia = f"{moeda_ia} {preco_atual_num:.2f}"
                 if sup_ia: suporte_ia = f"{moeda_ia} {sup_ia[0]:.2f}"
-                preco_atual_ia = f"{moeda_ia} {df_tec_ia['Close'].iloc[-1]:.2f}"
-        except Exception: pass
-
-        is_usa = ".SA" not in ticker
-        texto_noticias = ""
-        noticias_validas = []
-        try:
-            noticias_yf = ativo_yf.news
-            if noticias_yf:
-                for n in noticias_yf:
-                    if not n.get('title'): continue
-                    ts = n.get('providerPublishTime')
-                    dt_pub = datetime.fromtimestamp(ts).strftime('%d/%m/%Y') if ts else "Recente"
-                    fonte = n.get('publisher', 'Mercado')
-                    noticias_validas.append(f"- Data: {dt_pub} | Fonte: {fonte} | Título: {n.get('title')}\n")
-        except Exception: pass
-
-        # Garantindo que a IA receba bastante contexto para conseguir garimpar 10 notícias (5 boas e 5 ruins)
-        if len(noticias_validas) > 5:
-            texto_noticias = "".join(noticias_validas[:40]) 
-        else:
-            termo_busca = ticker.replace(".SA", "")
-            params = "hl=en-US&gl=US&ceid=US:en" if is_usa else "hl=pt-BR&gl=BR&ceid=BR:pt-419"
-            url_news = f"https://news.google.com/rss/search?q={termo_busca}+stock+market&{params}" if is_usa else f"https://news.google.com/rss/search?q={termo_busca}+ação+mercado&{params}"
-            try:
-                resp = requests.get(url_news, timeout=10)
-                if resp.status_code == 200:
-                    root = ET.fromstring(resp.text)
-                    for item in root.findall('.//item')[:40]:
-                        t = item.find('title').text if item.find('title') is not None else ""
-                        d = item.find('pubDate').text[5:16] if item.find('pubDate') is not None else "Recente"
-                        f = item.find('source').text if item.find('source') is not None else "Portal Financeiro"
-                        if t: texto_noticias += f"- Data: {d} | Fonte: {f} | Título: {t}\n"
-            except Exception: pass
+                if res_ia: resistencia_ia = f"{moeda_ia} {res_ia[0]:.2f}"
                 
-        if not texto_noticias.strip(): texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
+                preco_inicio = df_tec_ia['Close'].iloc[0]
+                if preco_atual_num >= preco_inicio:
+                    cor_grafico = '#00cc66'
+                    fill_grafico = 'rgba(0, 204, 102, 0.2)'
+                    tendencia_cp = "Alta" if df_tec_ia['SMA_20'].iloc[-1] > df_tec_ia['SMA_20'].iloc[-20] else "Baixa"
+                else:
+                    cor_grafico = '#ff4b4b'
+                    fill_grafico = 'rgba(255, 75, 75, 0.2)'
+                    tendencia_cp = "Baixa"
+                
+                fig_top = go.Figure(go.Scatter(x=df_tec_ia.index, y=df_tec_ia['Close'], mode='lines', line=dict(color=cor_grafico, width=2), fill='tozeroy', fillcolor=fill_grafico))
+                fig_top.update_layout(template="plotly_dark", height=200, margin=dict(l=0, r=0, t=0, b=0), xaxis_visible=False, yaxis_visible=True, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_top, use_container_width=True, config={'displayModeBar': False})
 
-        contexto_dados = f"""
-        **DADOS TÉCNICOS (PREÇO ATUAL E GRÁFICO):**
-        - Preço Atual da Ação: {preco_atual_ia}
-        - Suporte Gráfico (Preço Alvo Técnico): {suporte_ia}
-        """
-        
-        metodo_val = "Desconhecido"
-        if dados_fundos:
-            v_pessimista = dados_fundos.get('Val_Pessimista', 0)
-            v_base = dados_fundos.get('Val_Base', 0)
-            v_otimista = dados_fundos.get('Val_Otimista', 0)
-            v_fscore = dados_fundos.get('F_Score', 'N/A')
-            v_roic = dados_fundos.get('ROIC_%', 'N/A')
-            n_analistas = dados_fundos.get('Num_Analistas', 0)
-            recomendacao = dados_fundos.get('Recomendacao', 'N/A')
-            metodo_val = dados_fundos.get('Metodo_Valuation', 'Desconhecido')
+            # 2. COLETA DE NOTÍCIAS E DADOS DA IA
+            is_usa = ".SA" not in ticker
+            texto_noticias = ""
+            noticias_validas = []
+            try:
+                noticias_yf = ativo_yf.news
+                if noticias_yf:
+                    for n in noticias_yf:
+                        if not n.get('title'): continue
+                        ts = n.get('providerPublishTime')
+                        dt_pub = datetime.fromtimestamp(ts).strftime('%d/%m/%Y') if ts else "Recente"
+                        fonte = n.get('publisher', 'Mercado')
+                        noticias_validas.append(f"- Data: {dt_pub} | Fonte: {fonte} | Título: {n.get('title')}\n")
+            except: pass
+
+            if len(noticias_validas) > 5:
+                texto_noticias = "".join(noticias_validas[:40])
+            else:
+                termo_busca = ticker.replace(".SA", "")
+                params = "hl=en-US&gl=US&ceid=US:en" if is_usa else "hl=pt-BR&gl=BR&ceid=BR:pt-419"
+                url_news = f"https://news.google.com/rss/search?q={termo_busca}+stock+market&{params}" if is_usa else f"https://news.google.com/rss/search?q={termo_busca}+ação+mercado&{params}"
+                try:
+                    resp = requests.get(url_news, timeout=10)
+                    if resp.status_code == 200:
+                        root = ET.fromstring(resp.text)
+                        for item in root.findall('.//item')[:40]:
+                            t = item.find('title').text if item.find('title') is not None else ""
+                            d = item.find('pubDate').text[5:16] if item.find('pubDate') is not None else "Recente"
+                            f = item.find('source').text if item.find('source') is not None else "Portal Financeiro"
+                            if t: texto_noticias += f"- Data: {d} | Fonte: {f} | Título: {t}\n"
+                except: pass
+                    
+            if not texto_noticias.strip(): texto_noticias = "Sem notícias recentes mapeadas nas fontes globais e locais."
+
+            v_pessimista = dados_fundos.get('Val_Pessimista', 0) if dados_fundos else 0
+            v_base = dados_fundos.get('Val_Base', 0) if dados_fundos else 0
+            v_otimista = dados_fundos.get('Val_Otimista', 0) if dados_fundos else 0
             
-            contexto_dados += f"""
-        **VALUATION (METODOLOGIA APLICADA: {metodo_val}):**
-        - Alvo Pessimista: {moeda_ia} {v_pessimista if isinstance(v_pessimista, str) else f"{v_pessimista:.2f}"}
-        - Alvo Base (Preço Justo Central): {moeda_ia} {v_base if isinstance(v_base, str) else f"{v_base:.2f}"}
-        - Alvo Otimista: {moeda_ia} {v_otimista if isinstance(v_otimista, str) else f"{v_otimista:.2f}"}
-        - Cobertura: {n_analistas} analistas acompanham este ativo.
-        - Recomendação Média: {recomendacao}
-        
-        **FUNDAMENTOS (NÃO CITE ESTES NÚMEROS DIRETAMENTE NO TEXTO):**
-        - Qualidade F-Score: {v_fscore} de 5 estrelas.
-        - Eficiência ROIC: {v_roic}%
+            contexto_dados = f"""
+            Preço Atual: {preco_atual_ia}
+            Suporte: {suporte_ia} | Resistência: {resistencia_ia}
+            Alvo Pessimista: {moeda_ia} {v_pessimista:.2f}
+            Alvo Base: {moeda_ia} {v_base:.2f}
+            Alvo Otimista: {moeda_ia} {v_otimista:.2f}
             """
 
-        data_hoje = datetime.now().strftime("%d/%m/%Y")
+            # 3. PROMPT JSON PARA A IA (ESTRUTURA RÍGIDA)
+            prompt = f"""
+            Atue como Analista Chefe. Analise {ticker} com base nestes dados:
+            {contexto_dados}
+            MANCHETES: {texto_noticias}
+            
+            Você DEVE retornar APENAS um objeto JSON válido (sem marcações markdown como ```json), com a exata estrutura abaixo:
+            {{
+              "diagnostico_grafico_texto": "1 frase resumindo a tendência de preço frente ao suporte e resistência.",
+              "analise_tendencia_fundamental": "1 parágrafo robusto avaliando a saúde operacional (lucro, dívida, macroeconomia) e justificando o momento da empresa.",
+              "swot": {{
+                "S": ["Força 1", "Força 2", "Força 3"],
+                "W": ["Fraqueza 1", "Fraqueza 2", "Fraqueza 3"],
+                "O": ["Oportunidade 1", "Oportunidade 2", "Oportunidade 3"],
+                "T": ["Ameaça 1", "Ameaça 2", "Ameaça 3"]
+              }},
+              "tese_pessimista": "1 parágrafo justificando por que a ação pode cair para o alvo pessimista.",
+              "tese_base": "1 parágrafo justificando o preço alvo base.",
+              "tese_otimista": "1 parágrafo justificando o potencial de alta para o alvo otimista.",
+              "noticias_positivas": [
+                {{"fonte": "Nome", "manchete": "Título", "resumo": "1 linha de explicação"}},
+                // Retorne até 5 itens aqui
+              ],
+              "noticias_negativas": [
+                {{"fonte": "Nome", "manchete": "Título", "resumo": "1 linha de explicação"}},
+                // Retorne até 5 itens aqui
+              ]
+            }}
+            """
+            
+            model = genai.GenerativeModel('gemini-2.5-flash-lite')
+            response = model.generate_content(prompt)
+            
+            raw_json = response.text.replace("```json", "").replace("```", "").strip()
+            ia_data = json.loads(raw_json)
 
-        prompt = f"""
-        Hoje é dia {data_hoje}. Atue como o Analista Chefe do comitê de investimentos. 
-        Analise o ativo {ticker}.
-        
-        Abaixo estão os Alvos de Valuation e as notícias REAIS coletadas:
-        {contexto_dados}
-        
-        MANCHETES:
-        {texto_noticias}
-        
-        REGRA DE FORMATAÇÃO E ESTILO (INEGOCIÁVEL):
-        1. NÃO utilize o símbolo de cifrão ($) solto. Escreva sempre 'US$' ou 'R$'.
-        2. Na Matriz SWOT, você DEVE fornecer EXATAMENTE 3 tópicos com marcadores (*) para cada categoria.
-        3. Avalie com extremo ceticismo se a empresa estiver 'Sem Cobertura' de mercado.
-        
-        A sua resposta DEVE seguir estritamente a estrutura abaixo:
-        
-        ## 1. Análise SWOT Dinâmica
-        **Forças:**
-        * [Ponto forte 1]
-        * [Ponto forte 2]
-        * [Ponto forte 3]
-        
-        **Fraquezas:**
-        * [Ponto fraco 1]
-        * [Ponto fraco 2]
-        * [Ponto fraco 3]
-        
-        **Oportunidades:**
-        * [Oportunidade 1]
-        * [Oportunidade 2]
-        * [Oportunidade 3]
-        
-        **Ameaças:**
-        * [Ameaça 1]
-        * [Ameaça 2]
-        * [Ameaça 3]
-        
-        ## 2. Raio-X do Balanço (Foco Operacional - Referência: Balanço de {data_balanco_str})
-        REGRA RIGOROSA: NÃO mencione as palavras "F-Score", "ROIC", "Valuation", nem cite as notas matemáticas. Leia os fundamentos operacionais implícitos da empresa no mundo real.
-        
-        **Pontos Positivos:**
-        * ✅ [Fato positivo real 1 sobre a operação/negócio]
-        * ✅ [Fato positivo real 2 sobre a operação/negócio]
-        * ✅ [Fato positivo real 3 sobre a operação/negócio]
-        
-        **Pontos de Atenção (Negativos):**
-        * ⚠️ [Fato negativo/risco real 1 sobre a operação/negócio]
-        * ⚠️ [Fato negativo/risco real 2 sobre a operação/negócio]
-        * ⚠️ [Fato negativo/risco real 3 sobre a operação/negócio]
-        
-        ## 3. Termômetro de Notícias
-        Selecione as 10 manchetes mais relevantes do bloco de notícias e separe-as rigorosamente. Caso o contexto não tenha 5 de cada, extraia o máximo possível que se encaixe na categoria.
-        
-        **🟢 Top 5 Notícias Positivas/Otimistas:**
-        * **[Data] - [Fonte] - [Manchete]**
-        
-          **Resumo do Analista:** [Explicação fluida e separada da manchete].
-        
-        (Repita o formato acima para listar 5 notícias positivas)
-        
-        **🔴 Top 5 Notícias Negativas/Riscos:**
-        * **[Data] - [Fonte] - [Manchete]**
-        
-          **Resumo do Analista:** [Explicação fluida e separada da manchete].
-          
-        (Repita o formato acima para listar 5 notícias negativas)
-        
-        ---
-        ## 4. O Quadrante de Decisão
-        * 📈 **Análise Gráfica (Timing):** [Aprove ou rejeite a entrada com base no Suporte Técnico fornecido em relação ao preço atual].
-        * 💰 **Valuation ({metodo_val}):** [Avalie o preço atual frente ao Cenário Base fornecido. O ativo embute prêmio de risco adequado ou negocia com margem?].
-        * 🏢 **Fundamentos:** [Escreva julgando a saúde e resiliência da empresa].
-        * 🌡️ **Sentimento de Mercado:** [Defina em caixa alta OTIMISTA, NEUTRO ou PESSIMISTA, e escreva justificando com base nas notícias].
-        
-        ## 👑 Veredito Final
-        **Ação Recomendada:** [COMPRAR, MANTER, AGUARDAR SUPORTE ou VENDER].
-        
-        **Preço Sugerido para Compra:** [Com base no Suporte Gráfico e no Preço Alvo Base, defina o preço teto exato de entrada].
-        
-        **Tese Final:** [Escreva o fechamento da análise cruzando o preço técnico, o valuation, os fundamentos e a narrativa da mídia].
-        """
-        
-        model = genai.GenerativeModel('gemini-2.5-flash-lite')
-        response = model.generate_content(prompt)
-        st.markdown(response.text)
-    except Exception as e:
-        st.error(f"Erro ao comunicar com a IA ou processar dados: {e}")
+            # 4. PREPARAÇÃO DOS DADOS DO DASHBOARD
+            dy = f"{dados_fundos.get('Div_Yield_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Div_Yield_%')) else "-"
+            pl = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('LPA', 1):.2f}" if dados_fundos and dados_fundos.get('LPA', 0) > 0 else "-"
+            peg = "-"
+            pvp = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('VPA', 1):.2f}" if dados_fundos and dados_fundos.get('VPA', 0) > 0 else "-"
+            evebit = f"{dados_fundos.get('EV_EBIT', 0):.2f}" if dados_fundos and dados_fundos.get('EV_EBIT', 0) > 0 else "-"
+            vpa = f"{dados_fundos.get('VPA', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('VPA')) else "-"
+            
+            liq_corr = f"{dados_fundos.get('Liquidez_Corrente', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('Liquidez_Corrente')) else "-"
+            margem_liq = f"{dados_fundos.get('Margem_Liquida_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Margem_Liquida_%')) else "-"
+            roe = f"{dados_fundos.get('ROE_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('ROE_%')) else "-"
+            div_liq_pl = "-"
+
+            def render_estrelas(condicao):
+                return "★★★★★" if condicao else "★★☆☆☆"
+
+            star_roe = render_estrelas(dados_fundos.get('ROE_%', 0) > 10) if dados_fundos else "---"
+            star_roic = render_estrelas(dados_fundos.get('ROIC_%', 0) > 10) if dados_fundos else "---"
+            star_margem = render_estrelas(dados_fundos.get('Margem_Liquida_%', 0) > 5) if dados_fundos else "---"
+            star_divida = render_estrelas(dados_fundos.get('Liquidez_Corrente', 0) > 1.2) if dados_fundos else "---"
+            star_cresc = render_estrelas(dados_fundos.get('Crescimento_5a_%', 0) > 5) if dados_fundos else "---"
+
+            # Processamento seguro das listas HTML de notícias
+            html_noticias_positivas = ""
+            for n in ia_data.get('noticias_positivas', []):
+                html_noticias_positivas += f"<li class='news-item' style='border-left-color:#27ae60;'><span class='news-meta'>{n.get('fonte', '')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
+
+            html_noticias_negativas = ""
+            for n in ia_data.get('noticias_negativas', []):
+                html_noticias_negativas += f"<li class='news-item' style='border-left-color:#c0392b;'><span class='news-meta'>{n.get('fonte', '')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
+
+            # Formatação limpa das listas SWOT
+            swot_s = '<br>• '.join([''] + ia_data.get('swot', {}).get('S', []))
+            swot_w = '<br>• '.join([''] + ia_data.get('swot', {}).get('W', []))
+            swot_o = '<br>• '.join([''] + ia_data.get('swot', {}).get('O', []))
+            swot_t = '<br>• '.join([''] + ia_data.get('swot', {}).get('T', []))
+
+            # 5. MONTAGEM DO HTML DO DASHBOARD
+            dashboard_html = f"""
+            <style>
+            .dash-bg {{ background-color: #121212; color: #ecf0f1; font-family: 'Segoe UI', Arial, sans-serif; padding: 15px; border-radius: 8px; font-size: 13px; }}
+            .aviso-badge {{ background-color: #1a252f; border: 1px solid #3498db; color: #3498db; text-align: center; padding: 8px; border-radius: 4px; font-weight: bold; margin-bottom: 15px; }}
+            .section-title {{ color: #d35400; font-size: 11px; font-weight: bold; border-bottom: 1px dashed #333; margin-top: 20px; padding-bottom: 5px; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; gap: 5px; }}
+            
+            .metric-grid-3 {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }}
+            .metric-box-dark {{ border: 1px solid #333; padding: 10px; text-align: center; border-radius: 4px; background: #1a1a1a; }}
+            .metric-title {{ color: #7f8c8d; font-size: 10px; text-transform: uppercase; display: block; margin-bottom: 5px; }}
+            .metric-val-green {{ color: #27ae60; font-weight: bold; font-size: 16px; }}
+            .metric-val-red {{ color: #c0392b; font-weight: bold; font-size: 16px; }}
+            
+            .kpi-grid-6 {{ display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 5px; }}
+            .kpi-grid-4 {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 5px; }}
+            .kpi-item .label {{ color: #7f8c8d; font-size: 9px; text-transform: uppercase; }}
+            .kpi-item .val {{ color: #ecf0f1; font-weight: bold; font-size: 14px; display: block; margin-top: 2px; }}
+            
+            .text-box {{ color: #bdc3c7; font-size: 12px; line-height: 1.5; text-align: justify; }}
+            
+            .swot-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }}
+            .swot-card {{ padding: 12px; border-radius: 4px; background: #1a1a1a; font-size: 11px; color: #bdc3c7; }}
+            .swot-s {{ border: 1px solid #27ae60; }} .swot-w {{ border: 1px solid #c0392b; }}
+            .swot-o {{ border: 1px solid #2980b9; }} .swot-t {{ border: 1px solid #f39c12; }}
+            .swot-title {{ font-weight: bold; margin-bottom: 5px; display: block; }}
+            
+            .placar-row {{ display: flex; justify-content: space-between; border-bottom: 1px solid #222; padding: 6px 0; font-size: 12px; color: #bdc3c7; }}
+            .stars {{ color: #f1c40f; letter-spacing: 2px; }}
+            
+            .val-bar-container {{ display: flex; height: 6px; width: 100%; border-radius: 3px; overflow: hidden; margin: 15px 0; }}
+            .val-bar-red {{ background-color: #c0392b; flex: 1; }}
+            .val-bar-yellow {{ background-color: #f39c12; flex: 1; }}
+            .val-bar-green {{ background-color: #27ae60; flex: 1; }}
+            
+            .val-labels {{ display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; margin-bottom: 15px; }}
+            .val-pess {{ color: #c0392b; }} .val-base {{ color: #f39c12; text-align: center; }} .val-otim {{ color: #27ae60; text-align: right; }}
+            
+            .tese-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }}
+            .tese-card {{ border: 1px solid #333; padding: 10px; border-radius: 4px; font-size: 11px; color: #bdc3c7; line-height: 1.4; text-align: justify; }}
+            
+            .news-list {{ list-style-type: none; padding: 0; margin: 0; }}
+            .news-item {{ margin-bottom: 10px; font-size: 12px; border-left: 2px solid #555; padding-left: 10px; }}
+            .news-title {{ font-weight: bold; color: #ecf0f1; display: block; }}
+            .news-meta {{ color: #7f8c8d; font-size: 10px; margin-bottom: 2px; display: block; }}
+            </style>
+            
+            <div class="dash-bg">
+                <div class="aviso-badge">🛡️ Análise Assistida por IA — Baseada em Consenso e Indicadores Técnicos</div>
+                
+                <div class="section-title">🔒 DIAGNÓSTICO GRÁFICO (IA)</div>
+                <div class="metric-grid-3">
+                    <div class="metric-box-dark"><span class="metric-title">Tendência Curto Prazo</span><span class="{'metric-val-green' if tendencia_cp == 'Alta' else 'metric-val-red'}">{tendencia_cp}</span></div>
+                    <div class="metric-box-dark"><span class="metric-title">Zona de Suporte</span><span class="metric-val-green">{suporte_ia}</span></div>
+                    <div class="metric-box-dark"><span class="metric-title">Zona de Resistência</span><span class="metric-val-red">{resistencia_ia}</span></div>
+                </div>
+                <div class="text-box" style="text-align: center; font-style: italic;">"{ia_data.get('diagnostico_grafico_texto', '')}"</div>
+                
+                <div class="section-title">📊 INDICADORES DE VALUATION</div>
+                <div class="kpi-grid-6">
+                    <div class="kpi-item"><span class="label">D.Y</span><span class="val">{dy}</span></div>
+                    <div class="kpi-item"><span class="label">P/L</span><span class="val">{pl}</span></div>
+                    <div class="kpi-item"><span class="label">PEG RATIO</span><span class="val">{peg}</span></div>
+                    <div class="kpi-item"><span class="label">P/VP</span><span class="val">{pvp}</span></div>
+                    <div class="kpi-item"><span class="label">EV/EBITDA</span><span class="val">{evebit}</span></div>
+                    <div class="kpi-item"><span class="label">VPA</span><span class="val">{vpa}</span></div>
+                </div>
+                
+                <div class="section-title">⚖️ INDICADORES DE ENDIVIDAMENTO & RENTABILIDADE</div>
+                <div class="kpi-grid-4">
+                    <div class="kpi-item"><span class="label">Dív. Líquida / PL</span><span class="val">{div_liq_pl}</span></div>
+                    <div class="kpi-item"><span class="label">Liq. Corrente</span><span class="val">{liq_corr}</span></div>
+                    <div class="kpi-item"><span class="label">Margem Líquida</span><span class="val">{margem_liq}</span></div>
+                    <div class="kpi-item"><span class="label">ROE</span><span class="val">{roe}</span></div>
+                </div>
+                
+                <div class="section-title">🧠 DIAGNÓSTICO SÊNIOR & INTELIGÊNCIA SETORIAL</div>
+                <div class="text-box">{ia_data.get('analise_tendencia_fundamental', '')}</div>
+                
+                <div class="section-title">🎯 MATRIZ SWOT SETORIAL</div>
+                <div class="swot-grid">
+                    <div class="swot-card swot-s"><span class="swot-title" style="color:#27ae60;">S - Forças</span>{swot_s}</div>
+                    <div class="swot-card swot-w"><span class="swot-title" style="color:#c0392b;">W - Fraquezas</span>{swot_w}</div>
+                    <div class="swot-card swot-o"><span class="swot-title" style="color:#2980b9;">O - Oportunidades</span>{swot_o}</div>
+                    <div class="swot-card swot-t"><span class="swot-title" style="color:#f39c12;">T - Ameaças</span>{swot_t}</div>
+                </div>
+                
+                <div class="section-title">🏆 PLACAR FUNDAMENTALISTA VS SETOR</div>
+                <div class="placar-row"><span>ROE (Retorno do Acionista)</span><span class="stars">{star_roe}</span></div>
+                <div class="placar-row"><span>ROIC (Retorno s/ Capital)</span><span class="stars">{star_roic}</span></div>
+                <div class="placar-row"><span>Margem Líquida</span><span class="stars">{star_margem}</span></div>
+                <div class="placar-row"><span>Saúde da Dívida</span><span class="stars">{star_divida}</span></div>
+                <div class="placar-row" style="border:none;"><span>Cresc. Receita Líquida</span><span class="stars">{star_cresc}</span></div>
+                
+                <div class="section-title">📰 TERMÔMETRO DE NOTÍCIAS (TOP 10)</div>
+                <div class="swot-grid" style="align-items: start;">
+                    <div>
+                        <span style="color:#27ae60; font-weight:bold; font-size:12px; margin-bottom:10px; display:block;">🟢 Otimismo do Mercado</span>
+                        <ul class="news-list">
+                            {html_noticias_positivas}
+                        </ul>
+                    </div>
+                    <div>
+                        <span style="color:#c0392b; font-weight:bold; font-size:12px; margin-bottom:10px; display:block;">🔴 Alertas e Riscos</span>
+                        <ul class="news-list">
+                            {html_noticias_negativas}
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="section-title">🔮 VALUATION CONSENSO & PROJEÇÕES</div>
+                <div class="val-bar-container">
+                    <div class="val-bar-red"></div><div class="val-bar-yellow"></div><div class="val-bar-green"></div>
+                </div>
+                <div class="val-labels">
+                    <div class="val-pess">{moeda_ia} {v_pessimista:.2f}<br><span style="font-size:9px; color:#7f8c8d;">PESSIMISTA</span></div>
+                    <div class="val-base">{moeda_ia} {v_base:.2f}<br><span style="font-size:9px; color:#7f8c8d;">ALVO BASE</span></div>
+                    <div class="val-otim">{moeda_ia} {v_otimista:.2f}<br><span style="font-size:9px; color:#7f8c8d;">OTIMISTA</span></div>
+                </div>
+                
+                <div class="tese-grid">
+                    <div class="tese-card" style="border-color: #c0392b;"><span style="color:#c0392b; font-weight:bold; display:block; margin-bottom:5px;">Tese Pessimista</span>{ia_data.get('tese_pessimista', '')}</div>
+                    <div class="tese-card" style="border-color: #f39c12;"><span style="color:#f39c12; font-weight:bold; display:block; margin-bottom:5px;">Tese Base</span>{ia_data.get('tese_base', '')}</div>
+                    <div class="tese-card" style="border-color: #27ae60;"><span style="color:#27ae60; font-weight:bold; display:block; margin-bottom:5px;">Tese Otimista</span>{ia_data.get('tese_otimista', '')}</div>
+                </div>
+                
+            </div>
+            """
+            st.markdown(dashboard_html, unsafe_allow_html=True)
+            
+        except Exception as e:
+            st.error(f"Erro ao processar dashboard: {e}")
 
 # --- LISTAS DE ATIVOS ---
 macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F", 2), "Petróleo (Brent)": ("BZ=F", 2), "Bitcoin": ("BTC-USD", 2), "Ethereum": ("ETH-USD", 2), "Solana": ("SOL-USD", 2), "Ibovespa": ("^BVSP", 2), "S&P 500": ("^GSPC", 2), "Dow Jones": ("^DJI", 2), "Nasdaq": ("^IXIC", 2), "DAX (Alem)": ("^GDAXI", 2), "Nikkei (Jap)": ("^N225", 2), "Shanghai (Chi)": ("000001.SS", 2), "Shenzhen (Chi)": ("399001.SZ", 2), "Merval (Arg)": ("^MERV", 2)}
@@ -426,7 +531,7 @@ aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_rankings, aba_si
     "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🏆 Rankings", "🎛️ Simulador", "🎯 Raio-X & IA"
 ])
 
-# --- RENDERIZAÇÃO DOS CARDS (COM GRÁFICO CURVO E RODAPÉ DE AUDITORIA) ---
+# --- RENDERIZAÇÃO DOS CARDS (ESTÉTICA BLOOMBERG / WALL STREET C/ TRATAMENTO DE ERRO) ---
 def renderizar_grid_cards(dicionario_ativos, mercado):
     lista_tickers = [info[0] for info in dicionario_ativos.values()]
     dados_lote, fonte = buscar_dados_em_lote(lista_tickers, mercado)
@@ -437,82 +542,96 @@ def renderizar_grid_cards(dicionario_ativos, mercado):
         for i in range(0, len(lista_items), 4):
             cols = st.columns(4)
             for j, (nome_exibicao, (ticker, casas)) in enumerate(lista_items[i:i+4]):
-                if ticker in dados_lote.columns:
-                    precos = dados_lote[ticker].dropna()
-                    if len(precos) >= 2:
-                        atual = float(precos.iloc[-1])
-                        ontem = float(precos.iloc[-2])
-                        var = ((atual - ontem) / ontem) * 100
-                        
-                        if var >= 0:
-                            cor_linha = '#00cc66'
-                            cor_preenchimento = 'rgba(0, 204, 102, 0.15)'
-                            icone_var = "▲"
-                            sinal_var = "+"
-                        else:
-                            cor_linha = '#ff4b4b'
-                            cor_preenchimento = 'rgba(255, 75, 75, 0.15)'
-                            icone_var = "▼"
-                            sinal_var = ""
+                with cols[j]:
+                    with st.container(border=True):
+                        # Verifica se o ticker existe na resposta E se tem dados suficientes (Evita o "buraco" na Solana)
+                        if ticker in dados_lote.columns and len(dados_lote[ticker].dropna()) >= 2:
+                            precos = dados_lote[ticker].dropna()
+                            atual = float(precos.iloc[-1])
+                            ontem = float(precos.iloc[-2])
+                            var = ((atual - ontem) / ontem) * 100
                             
-                        if "^" in ticker or ".SS" in ticker or ".SZ" in ticker or ticker == "000001.SS":
-                            unidade = "Pts"
-                        elif mercado == "BR" or ticker in ["USDBRL=X", "EURBRL=X"]:
-                            unidade = "R$"
-                        else:
-                            unidade = "US$"
-                        
-                        min_y = precos.min()
-                        max_y = precos.max()
-                        margem_y = (max_y - min_y) * 0.1
-                        if margem_y == 0: margem_y = max_y * 0.01
+                            if var >= 0:
+                                cor_linha = '#00cc66'
+                                cor_preenchimento = 'rgba(0, 204, 102, 0.15)'
+                                icone_var = "▲"
+                                sinal_var = "+"
+                            else:
+                                cor_linha = '#ff4b4b'
+                                cor_preenchimento = 'rgba(255, 75, 75, 0.15)'
+                                icone_var = "▼"
+                                sinal_var = ""
+                                
+                            if "^" in ticker or ".SS" in ticker or ".SZ" in ticker or ticker == "000001.SS":
+                                unidade = "Pts"
+                            elif mercado == "BR" or ticker in ["USDBRL=X", "EURBRL=X"]:
+                                unidade = "R$"
+                            else:
+                                unidade = "US$"
+                            
+                            min_y = precos.min()
+                            max_y = precos.max()
+                            margem_y = (max_y - min_y) * 0.1
+                            if margem_y == 0: margem_y = max_y * 0.01
 
-                        with cols[j]:
-                            with st.container(border=True):
-                                html_card = f"""
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start; font-family: 'Segoe UI', Arial, sans-serif;">
-                                    <div style="display: flex; flex-direction: column; width: 50%;">
-                                        <span style="color: #ffffff; font-weight: 800; font-size: 15px; line-height: 1.2;">{nome_exibicao}</span>
-                                        <span style="color: #7f8c8d; font-size: 11px; margin-top: 2px;">{ticker}</span>
-                                    </div>
-                                    <div style="display: flex; flex-direction: column; align-items: flex-end; width: 50%;">
-                                        <span style="color: #ffffff; font-weight: bold; font-size: 14px;">{unidade}</span>
-                                        <span style="color: #ffffff; font-weight: 900; font-size: 20px; line-height: 1.1; margin-top: 2px;">{formatar_br(atual, casas)}</span>
-                                        <span style="color: {cor_linha}; font-size: 12px; font-weight: bold; margin-top: 4px;">
-                                            {icone_var} {sinal_var}{var:.2f}%
-                                        </span>
+                            html_card = f"""
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; font-family: 'Segoe UI', Arial, sans-serif;">
+                                <div style="display: flex; flex-direction: column; width: 50%;">
+                                    <span style="color: #ffffff; font-weight: 800; font-size: 15px; line-height: 1.2;">{nome_exibicao}</span>
+                                    <span style="color: #7f8c8d; font-size: 11px; margin-top: 2px;">{ticker}</span>
+                                </div>
+                                <div style="display: flex; flex-direction: column; align-items: flex-end; width: 50%;">
+                                    <span style="color: #ffffff; font-weight: bold; font-size: 14px;">{unidade}</span>
+                                    <span style="color: #ffffff; font-weight: 900; font-size: 20px; line-height: 1.1; margin-top: 2px;">{formatar_br(atual, casas)}</span>
+                                    <span style="color: {cor_linha}; font-size: 12px; font-weight: bold; margin-top: 4px;">
+                                        {icone_var} {sinal_var}{var:.2f}%
+                                    </span>
+                                </div>
+                            </div>
+                            """
+                            st.markdown(html_card, unsafe_allow_html=True)
+                            
+                            fig = go.Figure(go.Scatter(
+                                x=precos.index, 
+                                y=precos, 
+                                mode='lines', 
+                                line=dict(color=cor_linha, width=2.5, shape='spline'), 
+                                fill='tozeroy', 
+                                fillcolor=cor_preenchimento
+                            ))
+                            fig.update_layout(
+                                template="plotly_dark", 
+                                height=65, 
+                                margin=dict(l=0,r=0,t=10,b=0), 
+                                xaxis_visible=False, 
+                                yaxis_visible=False, 
+                                yaxis=dict(range=[min_y - margem_y, max_y + margem_y]),
+                                showlegend=False, 
+                                plot_bgcolor='rgba(0,0,0,0)', 
+                                paper_bgcolor='rgba(0,0,0,0)'
+                            )
+                            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                            
+                            if st.button("🔍 Histórico", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
+                                abrir_historico_simples(ticker, nome_exibicao)
+                                
+                            st.caption(f"⚡ {hora_consulta} | {fonte}")
+                        
+                        else:
+                            # O CARTÃO DE ERRO (Trava para não furar o layout se a API falhar)
+                            html_erro = f"""
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; font-family: 'Segoe UI', Arial, sans-serif; opacity: 0.5;">
+                                <div style="display: flex; flex-direction: column; width: 100%;">
+                                    <span style="color: #ffffff; font-weight: 800; font-size: 15px; line-height: 1.2;">{nome_exibicao}</span>
+                                    <span style="color: #7f8c8d; font-size: 11px; margin-top: 2px;">{ticker}</span>
+                                    <div style="text-align: center; margin-top: 30px; margin-bottom: 30px;">
+                                        <span style="color: #ff4b4b; font-size: 14px; font-weight: bold;">⚠️ Sem Dados da API</span>
                                     </div>
                                 </div>
-                                """
-                                st.markdown(html_card, unsafe_allow_html=True)
-                                
-                                # O SEGREDO DO GRÁFICO CURVO: shape='spline'
-                                fig = go.Figure(go.Scatter(
-                                    x=precos.index, 
-                                    y=precos, 
-                                    mode='lines', 
-                                    line=dict(color=cor_linha, width=2.5, shape='spline'), 
-                                    fill='tozeroy', 
-                                    fillcolor=cor_preenchimento
-                                ))
-                                fig.update_layout(
-                                    template="plotly_dark", 
-                                    height=65, 
-                                    margin=dict(l=0,r=0,t=10,b=0), 
-                                    xaxis_visible=False, 
-                                    yaxis_visible=False, 
-                                    yaxis=dict(range=[min_y - margem_y, max_y + margem_y]),
-                                    showlegend=False, 
-                                    plot_bgcolor='rgba(0,0,0,0)', 
-                                    paper_bgcolor='rgba(0,0,0,0)'
-                                )
-                                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-                                
-                                if st.button("🔍 Histórico", key=f"btn_hist_{ticker}_{mercado}", use_container_width=True):
-                                    abrir_historico_simples(ticker, nome_exibicao)
-                                    
-                                # A AUDITORIA VOLTOU!
-                                st.caption(f"⚡ {hora_consulta} | {fonte}")
+                            </div>
+                            """
+                            st.markdown(html_erro, unsafe_allow_html=True)
+                            st.caption(f"⚡ YF Timeout")
 
 with aba_macro: renderizar_grid_cards(macro_dict, "Macro")
 with aba_br: renderizar_grid_cards(acoes_br_dict, "BR")
@@ -642,7 +761,7 @@ if os.path.exists(arquivo_csv):
                         upside_text = "0.00%"
                         upside_style = "color: #bdc3c7; font-weight: bold;"
 
-                html += f"<tr>"
+                html += "<tr>"
                 html += f"<td style='font-weight: bold; color: #ecf0f1;'>{row['Posição']}</td>"
                 html += f"<td class='tabela-ativo'>{row['Ticker']}</td>"
                 html += f"<td style='font-weight: bold; color: #ecf0f1;'>{preco_atual}</td>"
@@ -784,7 +903,7 @@ if os.path.exists(arquivo_csv):
 else: 
     st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
 
-# --- ABA DE ANÁLISES ---
+# --- ABA DE ANÁLISES (MODAL INSTITUCIONAL) ---
 with aba_analises:
     st.header("🎯 Central de Inteligência Profissional")
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -798,4 +917,4 @@ with aba_analises:
             t_limpo = ativo_selecionado.replace(".SA", "")
             linha = df[df['Ticker'].str.contains(t_limpo, na=False)]
             if not linha.empty: dados_envio = linha.iloc[0].to_dict()
-        gerar_relatorio_ia(ativo_selecionado, dados_envio)
+        gerar_relatorio_ia_dashboard(ativo_selecionado, dados_envio)
