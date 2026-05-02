@@ -265,7 +265,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                 except: pass
                     
             if not texto_noticias.strip(): 
-                texto_noticias = "Nenhuma notícia foi encontrada nas últimas 2 semanas nas fontes padrão."
+                texto_noticias = "Nenhuma notícia recente encontrada."
             
             # 3. PREPARAÇÃO DOS DADOS DO DASHBOARD E INJEÇÃO NA IA
             v_pessimista = dados_fundos.get('Val_Pessimista', 0) if dados_fundos else 0
@@ -527,7 +527,9 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
         except Exception as e:
             error_msg = str(e)
             if "429" in error_msg or "Quota" in error_msg:
-                st.warning("⏳ O radar da Inteligência Artificial está resfriando. O limite de requisições gratuitas por minuto foi atingido. Por favor, aguarde cerca de 1 minuto e tente novamente.")
+                st.warning("⏳ O radar da Inteligência Artificial está resfriando. O limite de requisições gratuito foi atingido.")
+                with st.expander("🛠️ Modo Depurador (Ver Detalhes do Erro)"):
+                    st.code(error_msg)
             else:
                 st.error(f"Erro ao processar dashboard: {error_msg}")
 
@@ -785,16 +787,13 @@ if os.path.exists(arquivo_csv):
             for idx, row in df_sub.iterrows():
                 preco_atual = format_money(row, 'Preco')
                 
-                # --- AJUSTE AQUI: Sempre puxar Val_Pessimista para a coluna de Preço Alvo ---
                 if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)":
                     preco_alvo = "---"
                     upside_text = f"Score: {row['Pontuacao_Magica']:.0f}"
                     upside_style = "color: #00cc66; font-weight: bold;" 
                 else:
-                    # Forçando a exibição do alvo pessimista na tabela
                     preco_alvo = format_money(row, 'Val_Pessimista') 
                     upside_val = row[col_margem]
-                    
                     if upside_val > 0:
                         upside_text = f"+{upside_val:.2f}%"
                         upside_style = "color: #00cc66; font-weight: bold;" 
