@@ -776,7 +776,7 @@ if os.path.exists(arquivo_csv):
             df_sub['Posição'] = df_sub.index.astype(str) + "º"
             
             html = ESTILO_TABELA_PRO + "<table class='tabela-pro'><thead><tr>"
-            html += "<th>Posição</th><th>Ativo</th><th>Preço Atual</th><th>Preço Alvo</th><th>Upside / Margem</th><th>Saúde Visual</th>"
+            html += "<th>Posição</th><th>Ativo</th><th>Preço Atual</th><th>Preço Alvo (Pessimista)</th><th>Upside / Margem</th><th>Saúde Visual</th>"
             
             if "Consenso" in filtro_metodo:
                 html += "<th>Analistas</th><th>Recomendação</th>"
@@ -785,13 +785,16 @@ if os.path.exists(arquivo_csv):
             for idx, row in df_sub.iterrows():
                 preco_atual = format_money(row, 'Preco')
                 
+                # --- AJUSTE AQUI: Sempre puxar Val_Pessimista para a coluna de Preço Alvo ---
                 if filtro_metodo == "Fórmula Mágica (Greenblatt - Foco em Qualidade e Preço)":
                     preco_alvo = "---"
                     upside_text = f"Score: {row['Pontuacao_Magica']:.0f}"
                     upside_style = "color: #00cc66; font-weight: bold;" 
                 else:
-                    preco_alvo = format_money(row, col_alvo)
+                    # Forçando a exibição do alvo pessimista na tabela
+                    preco_alvo = format_money(row, 'Val_Pessimista') 
                     upside_val = row[col_margem]
+                    
                     if upside_val > 0:
                         upside_text = f"+{upside_val:.2f}%"
                         upside_style = "color: #00cc66; font-weight: bold;" 
