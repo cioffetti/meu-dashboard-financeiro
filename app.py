@@ -306,7 +306,16 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             str_v_base = f"{moeda_ia} {v_base_num:.2f}" if v_base_num > 0 else "N/A"
             str_v_otimista = f"{moeda_ia} {v_otimista_num:.2f}" if v_otimista_num > 0 else "N/A"
             
-            dy = safe_float_str(dados_fundos.get('Div_Yield_%', dados_fundos.get('Dividend_Yield_%')), "%") if dados_fundos else "-"
+            # --- FIX DA DISTORÇÃO DO DIVIDEND YIELD ESTRANGEIRO ---
+            raw_dy = dados_fundos.get('Div_Yield_%', dados_fundos.get('Dividend_Yield_%')) if dados_fundos else None
+            try:
+                dy_num = float(raw_dy)
+                if dy_num > 50:  # Corrige erro de escala (ex: 150 vira 1.50)
+                    dy_num = dy_num / 100
+                dy = f"{dy_num:.2f}%"
+            except:
+                dy = "-"
+
             pl_raw = dados_fundos.get('P/L') if dados_fundos else None
             if pl_raw and str(pl_raw).strip() not in ["N/A", "nan", "", "None"]:
                 pl = safe_float_str(pl_raw)
@@ -412,9 +421,14 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                     st.error("A IA gerou um formato de texto inválido. Por favor, clique novamente em 'Gerar Veredito IA'.")
                     return
             
-            crase = chr(96)
-            raw_json = response.text.replace(f"{crase}{crase}{crase}json", "").replace(f"{crase}{crase}{crase}", "").strip()
-            ia_data = json.loads(raw_json)
+            # --- BLINDAGEM DO SWOT CONTRA 'NONETYPE' ---
+            ia_data = ia_data or {} 
+            swot_data = ia_data.get('swot') or {} 
+
+            swot_s = '<br>• '.join([''] + swot_data.get('S', []))
+            swot_w = '<br>• '.join([''] + swot_data.get('W', []))
+            swot_o = '<br>• '.join([''] + swot_data.get('O', []))
+            swot_t = '<br>• '.join([''] + swot_data.get('T', []))
 
             def render_estrelas(condicao):
                 return "★★★★★" if condicao else "★★☆☆☆"
@@ -450,11 +464,6 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
 
             html_balanco_pos = "".join([f"<div class='balanco-item'><span>✅</span><span>{p}</span></div>" for p in ia_data.get('balanco_pontos_positivos', [])])
             html_balanco_neg = "".join([f"<div class='balanco-item'><span>⚠️</span><span>{p}</span></div>" for p in ia_data.get('balanco_pontos_negativos', [])])
-
-            swot_s = '<br>• '.join([''] + ia_data.get('swot', {}).get('S', []))
-            swot_w = '<br>• '.join([''] + ia_data.get('swot', {}).get('W', []))
-            swot_o = '<br>• '.join([''] + ia_data.get('swot', {}).get('O', []))
-            swot_t = '<br>• '.join([''] + ia_data.get('swot', {}).get('T', []))
 
             # HTML SEM INDENTAÇÃO
             dashboard_html = f"""<style>
@@ -741,6 +750,11 @@ if os.path.exists(arquivo_csv):
     df = pd.read_csv(arquivo_csv, sep=";")
     df = injetar_precos_ao_vivo(df)
     dados_base_carregados = True
+    
+    # --- CORREÇÃO DE ESCALA DO DY GRINGO NA RAIZ ---
+    if 'Div_Yield_%' in df.columns:
+        df['Div_Yield_%'] = pd.to_numeric(df['Div_Yield_%'], errors='coerce')
+        df.loc[df['Div_Yield_%'] > 50, 'Div_Yield_%'] = df['Div_Yield_%'] / 100
     
     df['Dividendo_Pago'] = df['Preco'] * (df['Div_Yield_%'] / 100)
     df['Teto_Bazin'] = df['Dividendo_Pago'] / 0.06
@@ -1054,7 +1068,7 @@ with aba_radar:
             st.write("") 
             st.write("")
             
-            # --- BOTÃO: GERAR VEREDITO IA (O único que restou) ---
+            # --- BOTÃO: GERAR VEREDITO IA ---
             if st.button("🧠 Gerar Veredito IA", use_container_width=True, type="primary"):
                 dados_para_ia = None
                 t_alvo = str(acao_escolhida).upper().split('.')[0].strip()
