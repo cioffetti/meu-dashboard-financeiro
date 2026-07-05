@@ -20,7 +20,7 @@ if not BRAPI_KEY or not FINNHUB_KEY:
 print("🤖 Robô V3.0 (Fase 2): Extraindo Fundamentos e Projeções de Crescimento...")
 
 acoes_br_list = ["AGRO3", "AMOB3", "BBAS3", "BBDC3", "BBSE3", "BRSR6", "B3SA3", "CMIG3", "CXSE3", "EGIE3", "EQTL3", "EZTC3", "FLRY3", "GMAT3", "ITSA4", "KEPL3", "KLBN3", "LEVE3", "PETR3", "PRIO3", "PSSA3", "RAIZ4", "RANI3", "SAPR4", "SBFG3", "SMTO3", "SOJA3", "SUZB3", "TAEE11", "TTEN3", "VAMO3", "VIVT3", "WEGE3"]
-acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA", "MU", "VZ", "T", "HD", "SHOP", "DIS", "SPG", "ANET", "ICE", "KO", "EQNR", "EPR", "WFC", "VICI", "O", "CPRT", "ASX", "CEPU", "NVO", "PLTR", "JBL", "QCOM", "AAPL", "MSFT", "BAC", "ORCL", "EQT", "MNST", "CVS", "HUYA", "GPC", "PFE", "ROKU", "DIBS", "LEG", "MBUU", "FVRR"]
+acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA", "MU", "VZ", "T", "HD", "SHOP", "DIS", "SPG", "ANET", "ICE", "KO", "EQNR", "EPR", "WFC", "VICI", "O", "CPRT", "ASX", "CEPU", "NVO", "PLTR", "JBL", "QCOM", "AAPL", "MSFT", "BAC", "ORCL", "EQT", "MNST", "CVS", "HUYA", "GPC", "PFE", "ROKU", "DIBS", "LEG", "MBUU", "FVRR","SPCX"]
 
 df_final = pd.DataFrame()
 
