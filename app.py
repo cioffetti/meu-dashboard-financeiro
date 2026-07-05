@@ -191,9 +191,11 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
     
     with st.spinner("Processando gráfico, coletando notícias e acionando IA Analista Sênior..."):
         try:
-            # 1. GRÁFICO DE ÁREA DO TOPO E INDICADORES TÉCNICOS
-            moeda_ia = "R$" if ".SA" in ticker else "US$"
-            ativo_yf = yf.Ticker(ticker)
+            mercado = dados_fundos.get('Mercado', 'BR' if '.SA' in ticker else 'USA') if dados_fundos else ('BR' if '.SA' in ticker else 'USA')
+            moeda_ia = "R$" if mercado == 'BR' or 'Fundamentus' in str(dados_fundos.get('Origem', '')) else "US$"
+            ticker_yf_str = f"{ticker}.SA" if moeda_ia == "R$" and not ticker.endswith(".SA") else ticker
+
+            ativo_yf = yf.Ticker(ticker_yf_str)
             dados_hist = ativo_yf.history(period="1y")
             
             preco_atual_ia, suporte_ia, resistencia_ia = "N/A", "N/A", "N/A"
@@ -221,32 +223,49 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                 fig_top.update_layout(template="plotly_dark", height=200, margin=dict(l=0, r=0, t=0, b=0), xaxis_visible=False, yaxis_visible=True, showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig_top, use_container_width=True, config={'displayModeBar': False})
 
-            # 2. COLETA DE NOTÍCIAS (FILTRO 14 DIAS) E DATA DO BALANÇO
+            # --- RECUPERAÇÃO BLINDADA DA DATA DE REFERÊNCIA ---
             data_balanco_str = "Recente"
-            try:
-                info = ativo_yf.info
-                if 'mostRecentQuarter' in info and info['mostRecentQuarter'] is not None:
-                    data_balanco_str = datetime.fromtimestamp(info['mostRecentQuarter']).strftime('%m/%Y')
-                else:
-                    q_fin = ativo_yf.quarterly_financials
-                    if not q_fin.empty:
-                        data_balanco_str = q_fin.columns[0].strftime('%m/%Y')
-            except: pass
+            if dados_fundos and 'Data_Referencia' in dados_fundos:
+                val = dados_fundos['Data_Referencia']
+                if pd.notnull(val) and str(val).strip() not in ["", "nan", "N/A", "-"]:
+                    data_balanco_str = str(val)
+            
+            if data_balanco_str == "Recente":
+                try:
+                    info = ativo_yf.info
+                    if 'mostRecentQuarter' in info and info['mostRecentQuarter'] is not None:
+                        data_balanco_str = datetime.fromtimestamp(info['mostRecentQuarter']).strftime('%m/%Y')
+                    else:
+                        q_fin = ativo_yf.quarterly_financials
+                        if not q_fin.empty:
+                            data_balanco_str = q_fin.columns[0].strftime('%m/%Y')
+                except: 
+                    pass
 
-            is_usa = ".SA" not in ticker
+            # --- EXTRAÇÃO DE NOTÍCIAS BLINDADA ---
+            is_usa = moeda_ia != "R$"
             texto_noticias = ""
             noticias_validas = []
+            
             try:
                 noticias_yf = ativo_yf.news
                 if noticias_yf:
                     for n in noticias_yf:
                         if not n.get('title'): continue
                         ts = n.get('providerPublishTime')
-                        dt_pub = datetime.fromtimestamp(ts).strftime('%d/%m/%Y') if ts else "Recente"
+                        if ts:
+                            dt_pub_obj = datetime.fromtimestamp(ts)
+                            if (datetime.now() - dt_pub_obj).days > 14:
+                                continue
+                            dt_pub = dt_pub_obj.strftime('%d/%m/%Y')
+                        else:
+                            dt_pub = "Recente"
+                            
                         fonte = n.get('publisher', 'Mercado')
                         noticias_validas.append(f"- Data: {dt_pub} | Fonte: {fonte} | Título: {n.get('title')}\n")
             except: pass
 
+            # Se o Yahoo falhar, busca no Google RSS com User-Agent para não ser bloqueado
             if len(noticias_validas) > 5:
                 texto_noticias = "".join(noticias_validas[:40])
             else:
@@ -254,12 +273,14 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
                 params = "hl=en-US&gl=US&ceid=US:en" if is_usa else "hl=pt-BR&gl=BR&ceid=BR:pt-419"
                 url_news = f"https://news.google.com/rss/search?q={termo_busca}+stock+when:14d&{params}" if is_usa else f"https://news.google.com/rss/search?q={termo_busca}+ação+when:14d&{params}"
                 try:
-                    resp = requests.get(url_news, timeout=10)
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                    resp = requests.get(url_news, headers=headers, timeout=10)
                     if resp.status_code == 200:
                         root = ET.fromstring(resp.text)
-                        for item in root.findall('.//item')[:40]:
+                        for item in root.findall('.//item')[:20]:
                             t = item.find('title').text if item.find('title') is not None else ""
-                            d = item.find('pubDate').text[5:16] if item.find('pubDate') is not None else "Recente"
+                            pub_date = item.find('pubDate')
+                            d = pub_date.text if pub_date is not None else "Recente"
                             f = item.find('source').text if item.find('source') is not None else "Portal Financeiro"
                             if t: texto_noticias += f"- Data: {d} | Fonte: {f} | Título: {t}\n"
                 except: pass
@@ -267,30 +288,47 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             if not texto_noticias.strip(): 
                 texto_noticias = "Nenhuma notícia recente encontrada."
             
-            # 3. PREPARAÇÃO DOS DADOS DO DASHBOARD E INJEÇÃO NA IA
-            v_pessimista = dados_fundos.get('Val_Pessimista', 0) if dados_fundos else 0
-            v_base = dados_fundos.get('Val_Base', 0) if dados_fundos else 0
-            v_otimista = dados_fundos.get('Val_Otimista', 0) if dados_fundos else 0
+            # --- FORMATAÇÃO SEGURA DOS DADOS ---
+            def safe_float_str(val, suffix=""):
+                if pd.isna(val) or val is None or str(val).strip() in ["", "N/A", "nan", "-"]:
+                    return "-"
+                try:
+                    return f"{float(val):.2f}{suffix}"
+                except:
+                    return "-"
+
+            preco_num = dados_fundos.get('Preco', dados_fundos.get('Preço', 0)) if dados_fundos else 0
+            v_pessimista_num = float(dados_fundos.get('Val_Pessimista', dados_fundos.get('Alvo_Pessimista', 0)) if dados_fundos else 0)
+            v_base_num = float(dados_fundos.get('Val_Base', 0) if dados_fundos else 0)
+            v_otimista_num = float(dados_fundos.get('Val_Otimista', 0) if dados_fundos else 0)
             
-            dy = f"{dados_fundos.get('Div_Yield_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Div_Yield_%')) else "-"
-            pl = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('LPA', 1):.2f}" if dados_fundos and dados_fundos.get('LPA', 0) > 0 else "-"
+            str_v_pessimista = f"{moeda_ia} {v_pessimista_num:.2f}" if v_pessimista_num > 0 else "N/A"
+            str_v_base = f"{moeda_ia} {v_base_num:.2f}" if v_base_num > 0 else "N/A"
+            str_v_otimista = f"{moeda_ia} {v_otimista_num:.2f}" if v_otimista_num > 0 else "N/A"
+            
+            dy = safe_float_str(dados_fundos.get('Div_Yield_%', dados_fundos.get('Dividend_Yield_%')), "%") if dados_fundos else "-"
+            pl_raw = dados_fundos.get('P/L') if dados_fundos else None
+            if pl_raw and str(pl_raw).strip() not in ["N/A", "nan", "", "None"]:
+                pl = safe_float_str(pl_raw)
+            else:
+                pl = f"{preco_num / dados_fundos.get('LPA', 1):.2f}" if dados_fundos and dados_fundos.get('LPA', 0) > 0 else "-"
+            
             peg = "-"
-            pvp = f"{dados_fundos.get('Preco', 0) / dados_fundos.get('VPA', 1):.2f}" if dados_fundos and dados_fundos.get('VPA', 0) > 0 else "-"
-            evebit = f"{dados_fundos.get('EV_EBIT', 0):.2f}" if dados_fundos and dados_fundos.get('EV_EBIT', 0) > 0 else "-"
-            vpa = f"{dados_fundos.get('VPA', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('VPA')) else "-"
-            
-            liq_corr = f"{dados_fundos.get('Liquidez_Corrente', 0):.2f}" if dados_fundos and pd.notnull(dados_fundos.get('Liquidez_Corrente')) else "-"
-            margem_liq = f"{dados_fundos.get('Margem_Liquida_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('Margem_Liquida_%')) else "-"
-            roe = f"{dados_fundos.get('ROE_%', 0):.2f}%" if dados_fundos and pd.notnull(dados_fundos.get('ROE_%')) else "-"
+            pvp = safe_float_str(dados_fundos.get('P/VP')) if dados_fundos and dados_fundos.get('P/VP') else (f"{preco_num / dados_fundos.get('VPA', 1):.2f}" if dados_fundos and dados_fundos.get('VPA', 0) > 0 else "-")
+            evebit = safe_float_str(dados_fundos.get('EV_EBIT')) if dados_fundos else "-"
+            vpa = safe_float_str(dados_fundos.get('VPA')) if dados_fundos else "-"
+            liq_corr = safe_float_str(dados_fundos.get('Liquidez_Corrente')) if dados_fundos else "-"
+            margem_liq = safe_float_str(dados_fundos.get('Margem_Liquida_%'), "%") if dados_fundos else "-"
+            roe = safe_float_str(dados_fundos.get('ROE_%'), "%") if dados_fundos else "-"
             div_liq_pl = "-"
             
             contexto_dados = f"""
             **DADOS DE MERCADO (TÉCNICOS E PREÇO):**
             Preço Atual: {preco_atual_ia}
             Suporte: {suporte_ia} | Resistência: {resistencia_ia}
-            Alvo Pessimista (Mercado): {moeda_ia} {v_pessimista:.2f}
-            Alvo Base (Mercado): {moeda_ia} {v_base:.2f}
-            Alvo Otimista (Mercado): {moeda_ia} {v_otimista:.2f}
+            Alvo Pessimista (Mercado): {str_v_pessimista}
+            Alvo Base (Mercado): {str_v_base}
+            Alvo Otimista (Mercado): {str_v_otimista}
             
             **INDICADORES FUNDAMENTALISTAS REAIS DA EMPRESA:**
             Dividend Yield: {dy}
@@ -302,7 +340,6 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             Liquidez Corrente: {liq_corr}
             """
 
-            # 4. PROMPT AVANÇADO BLINDADO CONTRA ALUCINAÇÕES DE NOTÍCIAS
             prompt = f"""
             Você é um analista de investimento sênior especializado em inteligência setorial, análise competitiva e efetuar valuation de ativos. 
             Sua missão é realizar uma pesquisa profunda sobre o ativo {ticker}.
@@ -314,50 +351,67 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
 
             DIRETRIZES:
             1. Percepção de Mercado: Resuma o sentimento geral do mercado baseado nas notícias e no consenso.
-            2. Análise Independente (A sua visão de Sênior): Ignore o ruído. Foque estritamente nos indicadores fornecidos (ROE, Margens, P/L, Dívida). Analise a saúde intrínseca, resiliência e valuation.
-            3. Notícias (FILTRO RIGOROSO E DETALHADO): 
-               - Classifique as manchetes APENAS se elas forem diretamente sobre a empresa {ticker}. 
-               - EXCLUA QUALQUER NOTÍCIA sobre outras empresas ou fundos que não tenham relação direta.
-               - Se não houver notícias de fato relevantes sobre a EMPRESA, DEIXE O ARRAY VAZIO []. NUNCA invente e NUNCA preencha com dados irrelevantes só para não ficar vazio.
-               - No "resumo", você DEVE extrair FATOS EXATOS: cite preços-alvo, metas, porcentagens de alta/queda ou os motivos exatos citados na manchete. PROIBIDO fazer resumos genéricos vazios.
+            2. Análise Independente (A sua visão de Sênior): Ignore o ruído. Foque estritamente nos indicadores fornecidos. Analise a saúde intrínseca, resiliência e valuation.
+            3. Cenários de Valuation: SE os alvos de preço vierem como "N/A", VOCÊ DEVE DECLARAR EXPLICITAMENTE que não há projeções de mercado disponíveis.
+            4. Notícias (REGRA ABSOLUTA E OBRIGATÓRIA): 
+               - Leia o campo "MANCHETES COLETADAS HOJE".
+               - Se houver QUALQUER manchete ali, você OBRIGATORIAMENTE deve formatá-la e inseri-la nos arrays "noticias_positivas" ou "noticias_negativas" no JSON.
+               - Se a notícia for "neutra", force a classificação para o lado mais provável. É ESTRITAMENTE PROIBIDO deixar os arrays vazios se existirem manchetes fornecidas.
+               - O campo "data" deve ser extraído da manchete e convertido para DD/MM/YYYY.
+               - O campo "resumo" deve ter uma frase explicando o impacto. PROIBIDO repetir o título.
 
             Você DEVE retornar APENAS um objeto JSON válido, sem NENHUMA formatação markdown como ```json, com a exata estrutura abaixo:
             {{
               "diagnostico_grafico_texto": "1 frase resumindo a tendência técnica e suporte/resistência.",
               "visao_mercado": "1 parágrafo com a percepção do mercado, consenso e sentimento geral.",
               "analise_independente_ia": "1 parágrafo robusto com sua análise INDEPENDENTE focada nos indicadores.",
-              "balanco_pontos_positivos": [
-                "Fato financeiro real 1", 
-                "Fato financeiro real 2", 
-                "Fato financeiro real 3"
-              ],
-              "balanco_pontos_negativos": [
-                "Risco/alerta financeiro real 1", 
-                "Risco/alerta financeiro real 2", 
-                "Risco/alerta financeiro real 3"
-              ],
-              "swot": {{
-                "S": ["Força 1", "Força 2", "Força 3"],
-                "W": ["Fraqueza 1", "Fraqueza 2", "Fraqueza 3"],
-                "O": ["Oportunidade 1", "Oportunidade 2", "Oportunidade 3"],
-                "T": ["Ameaça 1", "Ameaça 2", "Ameaça 3"]
-              }},
-              "tese_pessimista": "1 parágrafo com a tese de baixa.",
-              "tese_base": "1 parágrafo com a tese de preço justo.",
-              "tese_otimista": "1 parágrafo com a tese de alta.",
-              "noticias_positivas": [
-                {{"data": "DD/MM/YYYY", "fonte": "Nome da Fonte", "manchete": "Título Real da Notícia", "resumo": "Explicação detalhada contendo os números, preços ou motivos exatos citados na manchete."}}
-              ],
-              "noticias_negativas": [
-                {{"data": "DD/MM/YYYY", "fonte": "Nome da Fonte", "manchete": "Título Real da Notícia", "resumo": "Explicação detalhada contendo os números, preços ou motivos exatos citados na manchete."}}
-              ]
+              "balanco_pontos_positivos": ["Fato 1", "Fato 2", "Fato 3"],
+              "balanco_pontos_negativos": ["Risco 1", "Risco 2", "Risco 3"],
+              "swot": {{"S": ["..."], "W": ["..."], "O": ["..."], "T": ["..."]}},
+              "tese_pessimista": "...", "tese_base": "...", "tese_otimista": "...",
+              "noticias_positivas": [{{"data": "DD/MM/YYYY", "fonte": "...", "manchete": "...", "resumo": "..."}}],
+              "noticias_negativas": [{{"data": "DD/MM/YYYY", "fonte": "...", "manchete": "...", "resumo": "..."}}]
             }}
             """
             
             model = genai.GenerativeModel('gemini-2.5-flash')
-            response = model.generate_content(prompt)
             
-            # Limpeza do JSON blindada
+            # Trava de segurança: Força a IA a cuspir um JSON matematicamente válido
+            config_json = genai.GenerationConfig(response_mime_type="application/json")
+            
+            import time
+            max_tentativas = 3
+            
+            for tentativa in range(max_tentativas):
+                try:
+                    # Tenta gerar a análise
+                    response = model.generate_content(prompt, generation_config=config_json)
+                    break # Sucesso! Quebra o loop e segue o jogo.
+                    
+                except Exception as erro_api:
+                    # Se for erro de catraca (429) e ainda tivermos tentativas sobrando...
+                    if "429" in str(erro_api) and tentativa < max_tentativas - 1:
+                        st.warning(f"⏳ Catraca do Google acionada. Esfriando os motores por 35s... (Tentativa {tentativa+1}/{max_tentativas})")
+                        time.sleep(35) # Pausa de 35s garante que cobrimos os milissegundos chatos do Google
+                    else:
+                        # Se não for erro 429 ou se esgotar as 3 tentativas, joga a toalha.
+                        raise erro_api
+            
+            crase = chr(96)
+            raw_json = response.text.replace(f"{crase}{crase}{crase}json", "").replace(f"{crase}{crase}{crase}", "").strip()
+            
+            # Tentativa robusta de leitura do JSON
+            try:
+                ia_data = json.loads(raw_json)
+            except json.JSONDecodeError:
+                # Se ainda assim vier corrompido (ex: aspas simples), o Python conserta internamente
+                import ast
+                try:
+                    ia_data = ast.literal_eval(raw_json)
+                except:
+                    st.error("A IA gerou um formato de texto inválido. Por favor, clique novamente em 'Gerar Veredito IA'.")
+                    return
+            
             crase = chr(96)
             raw_json = response.text.replace(f"{crase}{crase}{crase}json", "").replace(f"{crase}{crase}{crase}", "").strip()
             ia_data = json.loads(raw_json)
@@ -365,30 +419,32 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             def render_estrelas(condicao):
                 return "★★★★★" if condicao else "★★☆☆☆"
 
-            star_roe = render_estrelas(dados_fundos.get('ROE_%', 0) > 10) if dados_fundos else "---"
-            star_roic = render_estrelas(dados_fundos.get('ROIC_%', 0) > 10) if dados_fundos else "---"
-            star_margem = render_estrelas(dados_fundos.get('Margem_Liquida_%', 0) > 5) if dados_fundos else "---"
-            star_divida = render_estrelas(dados_fundos.get('Liquidez_Corrente', 0) > 1.2) if dados_fundos else "---"
-            star_cresc = render_estrelas(dados_fundos.get('Crescimento_5a_%', 0) > 5) if dados_fundos else "---"
+            def safe_get_float(key1, key2=None):
+                if not dados_fundos: return 0
+                val = dados_fundos.get(key1, dados_fundos.get(key2))
+                try:
+                    return float(val)
+                except:
+                    return 0
 
-            # 5. PROCESSAMENTO SEGURO DAS NOTÍCIAS (COM TRATAMENTO DE ARRAYS VAZIOS)
+            star_roe = render_estrelas(safe_get_float('ROE_%') > 10)
+            star_roic = render_estrelas(safe_get_float('ROIC_%') > 10)
+            star_margem = render_estrelas(safe_get_float('Margem_Liquida_%') > 5)
+            star_divida = render_estrelas(safe_get_float('Liquidez_Corrente') > 1.2)
+            star_cresc = render_estrelas(safe_get_float('Crescimento_5a_%') > 5)
+
+            # --- PROCESSAMENTO SEGURO DAS NOTÍCIAS ---
             html_noticias_positivas = ""
-            if ia_data.get('noticias_positivas') and len(ia_data.get('noticias_positivas')) > 0:
-                for n in ia_data.get('noticias_positivas'):
-                    data_str = n.get('data', '')
-                    fonte_str = n.get('fonte', 'Mercado')
-                    meta_text = f"{data_str} • {fonte_str}" if data_str else fonte_str
-                    html_noticias_positivas += f"<li class='news-item' style='border-left-color:#27ae60;'><span class='news-meta'>{meta_text}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
+            if ia_data.get('noticias_positivas'):
+                for n in ia_data['noticias_positivas']:
+                    html_noticias_positivas += f"<li class='news-item' style='border-left-color:#27ae60;'><span class='news-meta'>{n.get('data', '')} • {n.get('fonte', '')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
             else:
                 html_noticias_positivas = "<li class='news-item' style='border-left-color:#7f8c8d;'><span style='color:#bdc3c7;'>Nenhum gatilho de otimismo relevante rastreado para esta empresa.</span></li>"
 
             html_noticias_negativas = ""
-            if ia_data.get('noticias_negativas') and len(ia_data.get('noticias_negativas')) > 0:
-                for n in ia_data.get('noticias_negativas'):
-                    data_str = n.get('data', '')
-                    fonte_str = n.get('fonte', 'Mercado')
-                    meta_text = f"{data_str} • {fonte_str}" if data_str else fonte_str
-                    html_noticias_negativas += f"<li class='news-item' style='border-left-color:#c0392b;'><span class='news-meta'>{meta_text}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
+            if ia_data.get('noticias_negativas'):
+                for n in ia_data['noticias_negativas']:
+                    html_noticias_negativas += f"<li class='news-item' style='border-left-color:#c0392b;'><span class='news-meta'>{n.get('data', '')} • {n.get('fonte', '')}</span><span class='news-title'>{n.get('manchete', '')}</span><span style='color:#bdc3c7;'>{n.get('resumo', '')}</span></li>"
             else:
                 html_noticias_negativas = "<li class='news-item' style='border-left-color:#7f8c8d;'><span style='color:#bdc3c7;'>Nenhum alerta crítico de risco rastreado para esta empresa.</span></li>"
 
@@ -487,24 +543,20 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
 <div class="swot-card swot-t"><span class="swot-title" style="color:#f39c12;">T - Ameaças</span>{swot_t}</div>
 </div>
 <div class="section-title">🏆 PLACAR FUNDAMENTALISTA VS SETOR</div>
-<div class="placar-row"><span>ROE (Retorno do Acionista)</span><span class="stars">{star_roe}</span></div>
-<div class="placar-row"><span>ROIC (Retorno s/ Capital)</span><span class="stars">{star_roic}</span></div>
+<div class="placar-row"><span>ROE (Acionista)</span><span class="stars">{star_roe}</span></div>
+<div class="placar-row"><span>ROIC (Capital)</span><span class="stars">{star_roic}</span></div>
 <div class="placar-row"><span>Margem Líquida</span><span class="stars">{star_margem}</span></div>
 <div class="placar-row"><span>Saúde da Dívida</span><span class="stars">{star_divida}</span></div>
-<div class="placar-row" style="border:none;"><span>Cresc. Receita Líquida</span><span class="stars">{star_cresc}</span></div>
+<div class="placar-row" style="border:none;"><span>Cresc. Receita</span><span class="stars">{star_cresc}</span></div>
 <div class="section-title">📰 TERMÔMETRO DE NOTÍCIAS</div>
 <div class="swot-grid" style="align-items: start;">
 <div>
 <span style="color:#27ae60; font-weight:bold; font-size:13px; margin-bottom:12px; display:block;">🟢 Otimismo do Mercado</span>
-<ul class="news-list">
-{html_noticias_positivas}
-</ul>
+<ul class="news-list">{html_noticias_positivas}</ul>
 </div>
 <div>
 <span style="color:#c0392b; font-weight:bold; font-size:13px; margin-bottom:12px; display:block;">🔴 Alertas e Riscos</span>
-<ul class="news-list">
-{html_noticias_negativas}
-</ul>
+<ul class="news-list">{html_noticias_negativas}</ul>
 </div>
 </div>
 <div class="section-title">🔮 VALUATION CONSENSO & PROJEÇÕES</div>
@@ -512,9 +564,9 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
 <div class="val-bar-red"></div><div class="val-bar-yellow"></div><div class="val-bar-green"></div>
 </div>
 <div class="val-labels">
-<div class="val-pess">{moeda_ia} {v_pessimista:.2f}<br><span style="font-size:10px; color:#7f8c8d;">PESSIMISTA</span></div>
-<div class="val-base">{moeda_ia} {v_base:.2f}<br><span style="font-size:10px; color:#7f8c8d;">ALVO BASE</span></div>
-<div class="val-otim">{moeda_ia} {v_otimista:.2f}<br><span style="font-size:10px; color:#7f8c8d;">OTIMISTA</span></div>
+<div class="val-pess">{str_v_pessimista}<br><span style="font-size:10px; color:#7f8c8d;">PESSIMISTA</span></div>
+<div class="val-base">{str_v_base}<br><span style="font-size:10px; color:#7f8c8d;">ALVO BASE</span></div>
+<div class="val-otim">{str_v_otimista}<br><span style="font-size:10px; color:#7f8c8d;">OTIMISTA</span></div>
 </div>
 <div class="tese-grid">
 <div class="tese-card" style="border-color: #c0392b;"><span style="color:#c0392b; font-weight:bold; display:block; margin-bottom:8px; font-size:14px;">Tese Pessimista</span>{ia_data.get('tese_pessimista', '')}</div>
@@ -525,13 +577,7 @@ def gerar_relatorio_ia_dashboard(ticker, dados_fundos=None):
             st.markdown(dashboard_html, unsafe_allow_html=True)
             
         except Exception as e:
-            error_msg = str(e)
-            if "429" in error_msg or "Quota" in error_msg:
-                st.warning("⏳ O radar da Inteligência Artificial está resfriando. O limite de requisições gratuito foi atingido.")
-                with st.expander("🛠️ Modo Depurador (Ver Detalhes do Erro)"):
-                    st.code(error_msg)
-            else:
-                st.error(f"Erro ao processar dashboard: {error_msg}")
+            st.error(f"Erro ao processar dashboard: {e}")
 
 # --- LISTAS DE ATIVOS ---
 macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F", 2), "Petróleo (Brent)": ("BZ=F", 2), "Bitcoin": ("BTC-USD", 2), "Ethereum": ("ETH-USD", 2), "Solana": ("SOL-USD", 2), "Ibovespa": ("^BVSP", 2), "S&P 500": ("^GSPC", 2), "Dow Jones": ("^DJI", 2), "Nasdaq": ("^IXIC", 2), "DAX (Alem)": ("^GDAXI", 2), "Nikkei (Jap)": ("^N225", 2), "Shanghai (Chi)": ("000001.SS", 2), "Shenzhen (Chi)": ("399001.SZ", 2), "Merval (Arg)": ("^MERV", 2)}
@@ -539,7 +585,7 @@ macro_dict = {"Dólar": ("USDBRL=X", 3), "Euro": ("EURBRL=X", 3), "Ouro": ("GC=F
 acoes_br_list = ["AGRO3.SA", "AMOB3.SA", "BBAS3.SA", "BBDC3.SA", "BBSE3.SA", "BRSR6.SA", "B3SA3.SA", "CMIG3.SA", "CXSE3.SA", "EGIE3.SA", "EQTL3.SA", "EZTC3.SA", "FLRY3.SA", "GMAT3.SA", "ITSA4.SA", "KEPL3.SA", "KLBN3.SA", "LEVE3.SA", "PETR3.SA", "PRIO3.SA", "PSSA3.SA", "RAIZ4.SA", "RANI3.SA", "SAPR4.SA", "SBFG3.SA", "SMTO3.SA", "SOJA3.SA", "SUZB3.SA", "TAEE11.SA", "TTEN3.SA", "VAMO3.SA", "VIVT3.SA", "WEGE3.SA", "ETHE11.SA", "GOLD11.SA", "QSOL11.SA", "QBTC11.SA"]
 acoes_br_dict = {ticker.replace(".SA", ""): (ticker, 2) for ticker in acoes_br_list}
 
-acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA", "MU", "VZ", "T", "HD", "SHOP", "DIS", "SPG", "ANET", "ICE", "KO", "EQNR", "EPR", "WFC", "VICI", "O", "CPRT", "ASX", "CEPU", "NVO", "PLTR", "JBL", "QCOM", "AAPL", "MSFT", "BAC", "ORCL", "EQT", "MNST", "CVS", "HUYA", "GPC", "PFE", "ROKU", "DIBS", "LEG", "MBUU", "FVRR"]
+acoes_usa_list = ["GOOGL", "AMZN", "NVDA", "TSM", "ASML", "AVGO", "IRS", "TSLA", "MU", "VZ", "T", "HD", "SHOP", "DIS", "SPG", "ANET", "ICE", "KO", "EQNR", "EPR", "WFC", "VICI", "O", "CPRT", "ASX", "CEPU", "NVO", "PLTR", "JBL", "QCOM", "AAPL", "MSFT", "BAC", "ORCL", "EQT", "MNST", "CVS", "HUYA", "GPC", "PFE", "ROKU", "DIBS", "LEG", "MBUU", "FVRR", "SPCX"]
 acoes_usa_dict = {ticker: (ticker, 2) for ticker in acoes_usa_list}
 
 # --- FUNÇÕES GERADORAS DE BADGES ---
@@ -582,8 +628,8 @@ def format_money(r, c):
     return f"{simb} {r[c]:.2f}"
 
 # --- CRIAÇÃO DAS ABAS ---
-aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_rankings, aba_simulador, aba_analises = st.tabs([
-    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🏆 Rankings", "🎛️ Simulador", "🎯 Raio-X & IA"
+aba_macro, aba_br, aba_usa, aba_fundamentos, aba_valuation, aba_rankings, aba_simulador, aba_radar, aba_analises = st.tabs([
+    "🌍 Visão Macro", "🇧🇷 Ações Brasil", "🇺🇸 Ações EUA", "📊 Fundamentos", "🧮 Valuation Pro", "🏆 Rankings", "🎛️ Simulador", "📡 Radar Ouro", "🎯 Raio-X & IA"
 ])
 
 # --- RENDERIZAÇÃO DOS CARDS ---
@@ -946,6 +992,108 @@ if os.path.exists(arquivo_csv):
 
 else: 
     st.warning("⚠️ Execute o 'robo_balancos.py' primeiro.")
+
+# --- ABA DO RADAR DE OURO (VERSÃO COM WATCHLIST INTEGRADA) ---
+with aba_radar:
+    st.header("🎯 Radar de Oportunidades (Funil de Consenso)")
+    
+    if os.path.exists("radar_final.csv"):
+        df_radar = pd.read_csv("radar_final.csv", sep=";")
+        
+        # 1. Controles de Ordenação
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            opcoes_ordenacao = {
+                "Upside (Cenário Pessimista)": "Upside_%",
+                "Nota de Recomendação": "Nota_Recomendacao",
+                "Preço Atual": "Preço",
+                "Alvo Pessimista": "Alvo_Pessimista"
+            }
+            criterio = st.selectbox("Ordenar por:", list(opcoes_ordenacao.keys()))
+        with col2:
+            st.write("") 
+            st.write("") 
+            ordem_decrescente = st.checkbox("Ordem Decrescente", value=True)
+
+        # Ordenação dos dados
+        coluna_real = opcoes_ordenacao[criterio]
+        df_radar = df_radar.sort_values(by=coluna_real, ascending=not ordem_decrescente).reset_index(drop=True)
+        df_radar.index = df_radar.index + 1
+        
+        # 2. Renderização da Tabela HTML
+        html_radar = ESTILO_TABELA_PRO + "<table class='tabela-pro'><thead><tr>"
+        html_radar += "<th>Posição</th><th>Ativo</th><th>Preço Atual</th><th>Preço Alvo (Pessimista)</th><th>Upside / Margem</th><th>Saúde Visual</th><th>Analistas</th><th>Recomendação</th></tr></thead><tbody>"
+        
+        for idx, row in df_radar.iterrows():
+            u_val = row['Upside_%']
+            u_cor = "#00cc66" if u_val > 0 else "#ff4b4b"
+            u_txt = f"{'+' if u_val > 0 else ''}{u_val:.2f}%"
+            
+            simb = "R$" if row['Mercado'] == 'BR' else "US$"
+            p_atual = f"{simb} {row['Preço']:.2f}"
+            p_alvo = f"{simb} {row['Alvo_Pessimista']:.2f}"
+            estrelas = "⭐" * int(round(row['Nota_Recomendacao']))
+            badge = gerar_badge_recomendacao(row['Nota_Recomendacao'])
+            
+            html_radar += f"<tr><td style='color: #ecf0f1;'>{idx}º</td><td class='tabela-ativo'>{row['Ticker']}</td>"
+            html_radar += f"<td>{p_atual}</td><td>{p_alvo}</td><td style='color: {u_cor};'>{u_txt}</td>"
+            html_radar += f"<td>{estrelas}</td><td>{int(row['Analistas'])}</td><td>{badge}</td></tr>"
+            
+        html_radar += "</tbody></table>"
+        st.markdown(html_radar, unsafe_allow_html=True)
+
+        # 3. Painel de Ações (Watchlist e IA)
+        st.divider()
+        st.subheader("🛠️ Central de Decisão")
+        
+        col_ia1, col_ia2 = st.columns([3, 1])
+        with col_ia1:
+            acao_escolhida = st.selectbox("Selecione o ativo para análise:", df_radar['Ticker'].unique())
+        
+        with col_ia2:
+            st.write("") 
+            st.write("")
+            
+            # --- BOTÃO: GERAR VEREDITO IA (O único que restou) ---
+            if st.button("🧠 Gerar Veredito IA", use_container_width=True, type="primary"):
+                dados_para_ia = None
+                t_alvo = str(acao_escolhida).upper().split('.')[0].strip()
+                
+                # Passo A: Busca na Base Principal
+                if 'df' in globals() or 'df' in locals():
+                    df_temp = df.copy()
+                    df_temp['T_Clean'] = df_temp['Ticker'].str.upper().str.split('.').str[0].str.strip()
+                    match_base = df_temp[df_temp['T_Clean'] == t_alvo]
+                    if not match_base.empty:
+                        dados_para_ia = match_base.iloc[0].to_dict()
+                
+                # Passo B: Busca na Watchlist (Se não achou na principal)
+                if dados_para_ia is None and os.path.exists("cofre_watchlist.csv"):
+                    df_watch = pd.read_csv("cofre_watchlist.csv", sep=";")
+                    df_watch['T_Clean'] = df_watch['Ticker'].str.upper().str.split('.').str[0].str.strip()
+                    match_watch = df_watch[df_watch['T_Clean'] == t_alvo]
+                    if not match_watch.empty:
+                        dados_para_ia = match_watch.iloc[0].to_dict()
+                        dados_para_ia["FONTE_DADOS"] = "WATCHLIST"
+                
+                # Passo C: Usa dados crus do Radar (Se não achou em lugar nenhum)
+                if dados_para_ia is None:
+                    match_radar = df_radar[df_radar['Ticker'] == acao_escolhida].iloc[0]
+                    moeda_fix = "R$" if match_radar['Mercado'] == 'BR' else "US$"
+                    dados_para_ia = {
+                        "Ticker": acao_escolhida,
+                        "Preço": match_radar['Preço'],
+                        "Alvo_Pessimista": match_radar['Alvo_Pessimista'],
+                        "Upside_%": match_radar['Upside_%'],
+                        "Nota_Recomendacao": match_radar['Nota_Recomendacao'],
+                        "Analistas": match_radar['Analistas'],
+                        "MOEDA": moeda_fix,
+                        "FONTE_DADOS": "RADAR_CONSENSO"
+                    }
+                
+                gerar_relatorio_ia_dashboard(acao_escolhida, dados_para_ia)
+    else:
+        st.warning("⚠️ Arquivo 'radar_final.csv' não encontrado.")
 
 # --- ABA DE ANÁLISES (MODAL INSTITUCIONAL) ---
 with aba_analises:
